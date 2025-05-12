@@ -1,0 +1,12 @@
+# Ignore build artifacts
+/build/
+*.exe
+*.o
+*.obj
+
+# Ignore runtime logs
+/logs/
+*.log
+
+# Ignore VSCode settings (optional)
+.vscode/
