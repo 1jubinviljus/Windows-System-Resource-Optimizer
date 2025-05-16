@@ -1,60 +1,107 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <windows.h>
+#include <sqlite3.h>
 
-// Forward declarations
-void displaySystemResources();
-void displayMemoryUsage();
-void displayCPUUsage();
-void displayDiskUsage();
+// Function declarations
+void create_table(sqlite3 *db);
+void insert_data(sqlite3 *db, const char *timestamp, double cpu_usage, double mem_usage, double disk_usage);
+void get_system_stats(double *cpu, double *mem, double *disk);
+void get_timestamp(char *buffer, size_t size);
 
 int main() {
-    printf("System Optimizer is running!\n");
+    sqlite3 *db;
 
-    //Call the function to display the system resource usage
-    displaySystemResources();
+    // Open or create SQLite database
+    if (sqlite3_open("build/optimizer.db", &db) != SQLITE_OK) {
+        fprintf(stderr, "Cannot open database: %s\n", sqlite3_errmsg(db));
+        return 1;
+    }
+
+    // Create table if not exists
+    create_table(db);
+
+    // Gather system statistics
+    char timestamp[32];
+    double cpu, mem, disk;
+
+    get_timestamp(timestamp, sizeof(timestamp));
+    get_system_stats(&cpu, &mem, &disk);
+
+    // Insert collected data into database
+    insert_data(db, timestamp, cpu, mem, disk);
+
+    // Feedback
+    printf("System stats collected and inserted:\n");
+    printf("Timestamp: %s\nCPU: %.2f%%\nMemory: %.2f%%\nDisk: %.2f%%\n",
+           timestamp, cpu, mem, disk);
+
+    sqlite3_close(db);
     return 0;
 }
 
-// Function to display all system resource usage
-void displaySystemResources(){
-    //Display all the system resource usages
-    displayMemoryUsage();
-    displayCPUUsage();
-    displayDiskUsage();
+// Creates the system_stats table
+void create_table(sqlite3 *db) {
+    const char *sql = "CREATE TABLE IF NOT EXISTS system_stats("
+                      "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                      "timestamp TEXT, "
+                      "cpu_usage REAL, "
+                      "memory_usage REAL, "
+                      "disk_usage REAL);";
+
+    char *err_msg = 0;
+    int rc = sqlite3_exec(db, sql, 0, 0, &err_msg);
+
+    if (rc != SQLITE_OK) {
+        fprintf(stderr, "SQL error in create_table: %s\n", err_msg);
+        sqlite3_free(err_msg);
+    }
 }
 
-// Function to display memory usage
-void displayMemoryUsage(){
+// Inserts system stats into the database
+void insert_data(sqlite3 *db, const char *timestamp, double cpu_usage, double mem_usage, double disk_usage) {
+    char sql[512];
+    snprintf(sql, sizeof(sql),
+             "INSERT INTO system_stats (timestamp, cpu_usage, memory_usage, disk_usage) "
+             "VALUES ('%s', %f, %f, %f);",
+             timestamp, cpu_usage, mem_usage, disk_usage);
+
+    char *err_msg = 0;
+    int rc = sqlite3_exec(db, sql, 0, 0, &err_msg);
+
+    if (rc != SQLITE_OK) {
+        fprintf(stderr, "SQL error in insert_data: %s\n", err_msg);
+        sqlite3_free(err_msg);
+    }
+}
+
+// Gets system resource usage (memory, disk, placeholder CPU)
+void get_system_stats(double *cpu, double *mem, double *disk) {
+    // Memory usage
     MEMORYSTATUSEX memInfo;
-    memInfo.dwLength = sizeof(MEMORYSTATUSEX); //set the struct size
-    if(GlobalMemoryStatusEx(&memInfo)){ //True if memInfo is sucessfully filled
-        printf("Memory Usage: %.2f%%\n", (float)(memInfo.dwMemoryLoad)); //% of memory usage
-        printf("Total Physical Memory: %llu bytes\n", memInfo.ullTotalPhys); //total physical memory
-        printf("Available Physical Memory: %llu bytes\n", memInfo.ullAvailPhys); //available physical memory
-    } else { printf("Error retreiving memory usage"); }
+    memInfo.dwLength = sizeof(MEMORYSTATUSEX);
+    if (GlobalMemoryStatusEx(&memInfo)) {
+        *mem = (double)memInfo.dwMemoryLoad;
+    } else {
+        *mem = -1.0;
+    }
+
+    // Disk usage
+    ULARGE_INTEGER freeBytes, totalBytes;
+    if (GetDiskFreeSpaceEx("C:\\", NULL, &totalBytes, &freeBytes)) {
+        *disk = 100.0 - ((double)freeBytes.QuadPart / (double)totalBytes.QuadPart) * 100;
+    } else {
+        *disk = -1.0;
+    }
+
+    // CPU usage placeholder (implementing real CPU usage tracking requires time sampling)
+    *cpu = -1.0;
 }
 
-// Function to display CPU usage
-void displayCPUUsage() {
-    SYSTEM_INFO sysInfo;
-    FILETIME idleTime, kernelTime, userTime;
-    
-    GetSystemInfo(&sysInfo);
-    if (GetSystemTimes(&idleTime, &kernelTime, &userTime)) {
-        // For simplicity, we are just displaying system info as CPU usage
-        printf("CPU Usage: Not Implemented (simplified version)\n");
-    } else {
-        printf("Error retrieving CPU usage\n");
-    }
-}
-
-// Function to display disk usage
-void displayDiskUsage() {
-    ULARGE_INTEGER freeBytesToCaller, totalBytes, freeBytes;
-    if (GetDiskFreeSpaceEx("C:\\", &freeBytesToCaller, &totalBytes, &freeBytes)) {
-        printf("Disk Usage: %.2f%% used\n", 100.0 - ((float)freeBytes.QuadPart / (float)totalBytes.QuadPart) * 100);
-    } else {
-        printf("Error retrieving disk usage\n");
-    }
+// Gets current timestamp in readable format
+void get_timestamp(char *buffer, size_t size) {
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    snprintf(buffer, size, "%04d-%02d-%02d %02d:%02d:%02d",
+             st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
 }
