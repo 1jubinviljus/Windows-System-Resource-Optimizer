@@ -34,7 +34,7 @@ int main() {
 
         get_timestamp(timestamp, sizeof(timestamp));
         cpu = get_cpu_usage();
-        get_system_stats(&mem, &disk); // We already got CPU separately
+        get_system_stats(&mem, &disk);
 
         // Insert collected data into database
         insert_data(db, timestamp, cpu, mem, disk);

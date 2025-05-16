@@ -10,3 +10,7 @@
 
 # Ignore VSCode settings (optional)
 .vscode/
+
+# Ignore the ideas
+/Other/
+Ideas.txt
