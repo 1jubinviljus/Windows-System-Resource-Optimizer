@@ -2,12 +2,14 @@
 #include <stdlib.h>
 #include <windows.h>
 #include <sqlite3.h>
+#include <time.h>
 
 // Function declarations
 void create_table(sqlite3 *db);
 void insert_data(sqlite3 *db, const char *timestamp, double cpu_usage, double mem_usage, double disk_usage);
-void get_system_stats(double *cpu, double *mem, double *disk);
+void get_system_stats(double *mem, double *disk);
 void get_timestamp(char *buffer, size_t size);
+double get_cpu_usage();
 
 int main() {
     sqlite3 *db;
@@ -21,20 +23,29 @@ int main() {
     // Create table if not exists
     create_table(db);
 
-    // Gather system statistics
-    char timestamp[32];
-    double cpu, mem, disk;
+    //Program start time
+    time_t start_time = time(NULL);
 
-    get_timestamp(timestamp, sizeof(timestamp));
-    get_system_stats(&cpu, &mem, &disk);
+    //Run the program for 60 seconds
+    while(difftime(time(NULL),start_time) <60 ){
+        // Gather system statistics
+        char timestamp[32];
+        double cpu, mem, disk;
 
-    // Insert collected data into database
-    insert_data(db, timestamp, cpu, mem, disk);
+        get_timestamp(timestamp, sizeof(timestamp));
+        cpu = get_cpu_usage();
+        get_system_stats(&mem, &disk); // We already got CPU separately
 
-    // Feedback
-    printf("System stats collected and inserted:\n");
-    printf("Timestamp: %s\nCPU: %.2f%%\nMemory: %.2f%%\nDisk: %.2f%%\n",
-           timestamp, cpu, mem, disk);
+        // Insert collected data into database
+        insert_data(db, timestamp, cpu, mem, disk);
+
+        // Feedback
+        printf("System stats collected and inserted:\n");
+        printf("Timestamp: %s\nCPU: %.2f%%\nMemory: %.2f%%\nDisk: %.2f%%\n",
+            timestamp, cpu, mem, disk);
+
+        Sleep(2000); //collect data every 2 seconds
+    }
 
     sqlite3_close(db);
     return 0;
@@ -75,27 +86,28 @@ void insert_data(sqlite3 *db, const char *timestamp, double cpu_usage, double me
     }
 }
 
-// Gets system resource usage (memory, disk, placeholder CPU)
-void get_system_stats(double *cpu, double *mem, double *disk) {
+// Gets memory and disk usage
+void get_system_stats(double *mem, double *disk) {
     // Memory usage
-    MEMORYSTATUSEX memInfo;
-    memInfo.dwLength = sizeof(MEMORYSTATUSEX);
-    if (GlobalMemoryStatusEx(&memInfo)) {
-        *mem = (double)memInfo.dwMemoryLoad;
-    } else {
-        *mem = -1.0;
+    if (mem) {
+        MEMORYSTATUSEX memInfo;
+        memInfo.dwLength = sizeof(MEMORYSTATUSEX);
+        if (GlobalMemoryStatusEx(&memInfo)) {
+            *mem = (double)memInfo.dwMemoryLoad;
+        } else {
+            *mem = -1.0;
+        }
     }
 
     // Disk usage
-    ULARGE_INTEGER freeBytes, totalBytes;
-    if (GetDiskFreeSpaceEx("C:\\", NULL, &totalBytes, &freeBytes)) {
-        *disk = 100.0 - ((double)freeBytes.QuadPart / (double)totalBytes.QuadPart) * 100;
-    } else {
-        *disk = -1.0;
+    if (disk) {
+        ULARGE_INTEGER freeBytes, totalBytes;
+        if (GetDiskFreeSpaceEx("C:\\", NULL, &totalBytes, &freeBytes)) {
+            *disk = 100.0 - ((double)freeBytes.QuadPart / (double)totalBytes.QuadPart) * 100;
+        } else {
+            *disk = -1.0;
+        }
     }
-
-    // CPU usage placeholder (implementing real CPU usage tracking requires time sampling)
-    *cpu = -1.0;
 }
 
 // Gets current timestamp in readable format
@@ -104,4 +116,40 @@ void get_timestamp(char *buffer, size_t size) {
     GetLocalTime(&st);
     snprintf(buffer, size, "%04d-%02d-%02d %02d:%02d:%02d",
              st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+}
+
+// Measures CPU usage using two samples
+double get_cpu_usage() {
+    FILETIME idleTime1, kernelTime1, userTime1;
+    FILETIME idleTime2, kernelTime2, userTime2;
+    ULARGE_INTEGER idle1, kernel1, user1;
+    ULARGE_INTEGER idle2, kernel2, user2;
+
+    if (!GetSystemTimes(&idleTime1, &kernelTime1, &userTime1)) return -1.0;
+    Sleep(100);  // 100 ms delay
+    if (!GetSystemTimes(&idleTime2, &kernelTime2, &userTime2)) return -1.0;
+
+    idle1.LowPart = idleTime1.dwLowDateTime;
+    idle1.HighPart = idleTime1.dwHighDateTime;
+    kernel1.LowPart = kernelTime1.dwLowDateTime;
+    kernel1.HighPart = kernelTime1.dwHighDateTime;
+    user1.LowPart = userTime1.dwLowDateTime;
+    user1.HighPart = userTime1.dwHighDateTime;
+
+    idle2.LowPart = idleTime2.dwLowDateTime;
+    idle2.HighPart = idleTime2.dwHighDateTime;
+    kernel2.LowPart = kernelTime2.dwLowDateTime;
+    kernel2.HighPart = kernelTime2.dwHighDateTime;
+    user2.LowPart = userTime2.dwLowDateTime;
+    user2.HighPart = userTime2.dwHighDateTime;
+
+    ULONGLONG idleDiff = idle2.QuadPart - idle1.QuadPart;
+    ULONGLONG kernelDiff = kernel2.QuadPart - kernel1.QuadPart;
+    ULONGLONG userDiff = user2.QuadPart - user1.QuadPart;
+    ULONGLONG total = kernelDiff + userDiff;
+
+    if (total == 0) return -1.0;
+
+    double cpuUsage = (1.0 - ((double)idleDiff / total)) * 100.0;
+    return cpuUsage;
 }
