@@ -2,11 +2,13 @@ import sqlite3
 import pandas as pd
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
+from detection import load_data, detect_spike
+import detection
 
 # --- SETTINGS ---
-FOCUS_LAST_HOUR = False   # Set to True to only view data from the last hour
-SMOOTH_WINDOW = 5         # Size of moving average window
-SAVE_PLOTS = False        # Set to True to save plots as PNG files
+FOCUS_LAST_HOUR = False    # Set True to only view data from the last hour
+SMOOTH_WINDOW = 1          # Moving average window size for smoothing
+SAVE_PLOTS = False         # Set True to save plots as PNG files
 
 # --- Load data ---
 conn = sqlite3.connect("build/optimizer.db")
@@ -33,16 +35,16 @@ for col in ['cpu_usage_percent', 'memory_usage_kb', 'process_name']:
     if col not in process_df.columns:
         raise KeyError(f"Column '{col}' missing from process_stats table.")
 
-# --- Apply smoothing with min_periods=1 to avoid NaN at start ---
+# --- Apply smoothing with min_periods=1 to avoid NaNs at start ---
 system_df['cpu_smooth'] = system_df['cpu_usage'].rolling(window=SMOOTH_WINDOW, min_periods=1).mean()
 system_df['memory_smooth'] = system_df['memory_usage'].rolling(window=SMOOTH_WINDOW, min_periods=1).mean()
 system_df['disk_smooth'] = system_df['disk_usage'].rolling(window=SMOOTH_WINDOW, min_periods=1).mean()
 
 # --- Plot system usage ---
 plt.figure(figsize=(11, 5))
-plt.plot(system_df['timestamp'], system_df['cpu_smooth'], label='CPU Usage (Smoothed)', linestyle='-')
-plt.plot(system_df['timestamp'], system_df['memory_smooth'], label='Memory Usage (Smoothed)', linestyle='-')
-plt.plot(system_df['timestamp'], system_df['disk_smooth'], label='Disk Usage (Smoothed)', linestyle='-')
+plt.plot(system_df['timestamp'], system_df['cpu_smooth'], label='CPU Usage (Smoothed)')
+plt.plot(system_df['timestamp'], system_df['memory_smooth'], label='Memory Usage (Smoothed)')
+plt.plot(system_df['timestamp'], system_df['disk_smooth'], label='Disk Usage (Smoothed)')
 plt.xlabel("Time")
 plt.ylabel("Usage (%)")
 plt.title("System Resource Usage Over Time")
@@ -74,3 +76,37 @@ plt.tight_layout()
 if SAVE_PLOTS:
     plt.savefig("top_memory_processes.png")
 plt.show()
+
+# --- Plot Resource Spikes ---
+def plot_spikes(system_df, cpu_spikes, mem_spikes, disk_spikes):
+    plt.figure(figsize=(11, 5))
+
+    # Plot smoothed usage lines
+    plt.plot(system_df['timestamp'], system_df['cpu_smooth'], label='CPU Usage (Smoothed)')
+    plt.plot(system_df['timestamp'], system_df['memory_smooth'], label='Memory Usage (Smoothed)')
+    plt.plot(system_df['timestamp'], system_df['disk_smooth'], label='Disk Usage (Smoothed)')
+
+    # Plot spikes as red dots (no label to avoid duplicate legend entries)
+    plt.scatter(cpu_spikes['timestamp'], cpu_spikes['cpu_usage'], color='red')
+    plt.scatter(mem_spikes['timestamp'], mem_spikes['memory_usage'], color='red')
+    plt.scatter(disk_spikes['timestamp'], disk_spikes['disk_usage'], color='red')
+
+    # Add a dummy scatter just for the legend
+    plt.scatter([], [], color='red', label='Spikes')
+
+    plt.xlabel("Time")
+    plt.ylabel("Usage (%)")
+    plt.title("System Resource Usage with Spikes Highlighted")
+    plt.legend()
+    plt.xticks(rotation=30)
+    plt.tight_layout()
+    plt.grid(True)
+    plt.show()
+
+# --- Detect Resource Spikes ---
+spikes_df = load_data()
+cpu_spikes = detect_spike(spikes_df, 'cpu_usage', detection.ROLLING_WINDOW, detection.THRESHOLD)
+mem_spikes = detect_spike(spikes_df, 'memory_usage', detection.ROLLING_WINDOW, detection.THRESHOLD)
+disk_spikes = detect_spike(spikes_df, 'disk_usage', detection.ROLLING_WINDOW, detection.THRESHOLD)
+
+plot_spikes(system_df, cpu_spikes, mem_spikes, disk_spikes)

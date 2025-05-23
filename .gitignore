@@ -1,16 +1,22 @@
-# Ignore build artifacts
+# Build artifacts
 /build/
 *.exe
 *.o
 *.obj
 
-# Ignore runtime logs
+# Runtime logs
 /logs/
 *.log
 
-# Ignore VSCode settings (optional)
+# Python cache and bytecode
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+
+# VSCode settings
 .vscode/
 
-# Ignore the ideas
+# Misc
 /Other/
 Ideas.txt
