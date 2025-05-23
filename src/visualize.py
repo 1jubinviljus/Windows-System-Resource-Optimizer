@@ -7,7 +7,7 @@ import detection
 
 # --- SETTINGS ---
 FOCUS_LAST_HOUR = False    # Set True to only view data from the last hour
-SMOOTH_WINDOW = 1          # Moving average window size for smoothing
+SMOOTH_WINDOW = detection.ROLLING_WINDOW # Moving average window size for smoothing
 SAVE_PLOTS = False         # Set True to save plots as PNG files
 
 # --- Load data ---
