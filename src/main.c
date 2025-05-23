@@ -163,22 +163,45 @@ void get_timestamp(char *buffer, size_t size) {
 }
 
 double get_cpu_usage() {
-    FILETIME idle1, kernel1, user1, idle2, kernel2, user2;
-    ULARGE_INTEGER i1, k1, u1, i2, k2, u2;
+    FILETIME idleTime1, kernelTime1, userTime1;
+    FILETIME idleTime2, kernelTime2, userTime2;
+    ULARGE_INTEGER idle1, kernel1, user1;
+    ULARGE_INTEGER idle2, kernel2, user2;
 
-    if (!GetSystemTimes(&idle1, &kernel1, &user1)) return -1.0;
-    Sleep(100);
-    if (!GetSystemTimes(&idle2, &kernel2, &user2)) return -1.0;
+    // Take first snapshot
+    if (!GetSystemTimes(&idleTime1, &kernelTime1, &userTime1)) return -1.0;
 
-    i1.LowPart = idle1.dwLowDateTime; i1.HighPart = idle1.dwHighDateTime;
-    k1.LowPart = kernel1.dwLowDateTime; k1.HighPart = kernel1.dwHighDateTime;
-    u1.LowPart = user1.dwLowDateTime; u1.HighPart = user1.dwHighDateTime;
-    i2.LowPart = idle2.dwLowDateTime; i2.HighPart = idle2.dwHighDateTime;
-    k2.LowPart = kernel2.dwLowDateTime; k2.HighPart = kernel2.dwHighDateTime;
-    u2.LowPart = user2.dwLowDateTime; u2.HighPart = user2.dwHighDateTime;
+    Sleep(100);  // Wait 100 ms
 
-    ULONGLONG idleDiff = i2.QuadPart - i1.QuadPart;
-    ULONGLONG totalDiff = (k2.QuadPart - k1.QuadPart) + (u2.QuadPart - u1.QuadPart);
+    // Take second snapshot
+    if (!GetSystemTimes(&idleTime2, &kernelTime2, &userTime2)) return -1.0;
 
-    return totalDiff == 0 ? -1.0 : (1.0 - (double)idleDiff / totalDiff) * 100.0;
+    // Convert FILETIMEs to ULARGE_INTEGERs
+    idle1.LowPart = idleTime1.dwLowDateTime;
+    idle1.HighPart = idleTime1.dwHighDateTime;
+    kernel1.LowPart = kernelTime1.dwLowDateTime;
+    kernel1.HighPart = kernelTime1.dwHighDateTime;
+    user1.LowPart = userTime1.dwLowDateTime;
+    user1.HighPart = userTime1.dwHighDateTime;
+
+    idle2.LowPart = idleTime2.dwLowDateTime;
+    idle2.HighPart = idleTime2.dwHighDateTime;
+    kernel2.LowPart = kernelTime2.dwLowDateTime;
+    kernel2.HighPart = kernelTime2.dwHighDateTime;
+    user2.LowPart = userTime2.dwLowDateTime;
+    user2.HighPart = userTime2.dwHighDateTime;
+
+    // Calculate deltas
+    ULONGLONG idleDiff = idle2.QuadPart - idle1.QuadPart;
+    ULONGLONG kernelDiff = kernel2.QuadPart - kernel1.QuadPart;
+    ULONGLONG userDiff = user2.QuadPart - user1.QuadPart;
+    ULONGLONG total = kernelDiff + userDiff;
+
+    // Avoid divide-by-zero
+    if (total == 0) return -1.0;
+
+    // Calculate CPU usage
+    double usage = (1.0 - ((double)idleDiff / total)) * 100.0;
+    return usage;
 }
+
