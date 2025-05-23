@@ -1,37 +1,72 @@
 import sqlite3
+import pandas as pd
+import random
 from datetime import datetime, timedelta
 
-def insert_test_data():
-    conn = sqlite3.connect('build/optimizer.db')
-    cursor = conn.cursor()
+# Configuration
+NUM_ENTRIES = 100
+START_TIME = datetime.now() - timedelta(minutes=NUM_ENTRIES * 1)  # 1-minute intervals
+DB_PATH = 'build/optimizer.db'
 
-    # Clear existing data (optional, be careful!)
-    # cursor.execute("DELETE FROM system_stats")
+def create_test_data():
+    timestamps = [START_TIME + timedelta(minutes=i) for i in range(NUM_ENTRIES)]
 
-    # Base timestamp (now)
-    base_time = datetime.now()
+    # Simulate system CPU usage with some pattern
+    system_data = pd.DataFrame({
+        'timestamp': timestamps,
+        'cpu_usage': [random.uniform(5, 25) for _ in range(NUM_ENTRIES)],
+        'memory_usage': [random.uniform(30, 80) for _ in range(NUM_ENTRIES)],
+        'disk_usage': [random.uniform(20, 70) for _ in range(NUM_ENTRIES)]
+    })
 
-    # Create test data with normal values then spikes
-    data = []
-    # 10 normal points with cpu_usage = 10
-    for i in range(10):
-        timestamp = base_time + timedelta(seconds=i * 10)
-        data.append((timestamp, 10, 10, 10))  # cpu, memory, disk all 10%
+    # Simulate process data with multiple PIDs contributing to CPU
+    process_data = []
+    for timestamp in timestamps:
+        for pid in range(1, 6):  # Simulate 5 processes
+            process_data.append({
+                'timestamp': timestamp,
+                'pid': pid,
+                'process_name': f'proc_{pid}',
+                'cpu_usage': random.uniform(0.5, 5)
+            })
+    process_data = pd.DataFrame(process_data)
 
-    # 5 spike points with cpu_usage = 20 (above threshold)
-    for i in range(10, 15):
-        timestamp = base_time + timedelta(seconds=i * 10)
-        data.append((timestamp, 20, 10, 10))
+    return system_data, process_data
 
-    # Insert rows into system_stats (make sure your columns match!)
-    cursor.executemany(
-        "INSERT INTO system_stats (timestamp, cpu_usage, memory_usage, disk_usage) VALUES (?, ?, ?, ?)",
-        data
-    )
+def populate_database(system_data, process_data):
+    conn = sqlite3.connect(DB_PATH)
+
+    # Drop existing tables to reset schema
+    conn.execute("DROP TABLE IF EXISTS system_stats")
+    conn.execute("DROP TABLE IF EXISTS process_stats")
+
+    # Recreate tables with expected schema
+    conn.execute('''
+        CREATE TABLE system_stats (
+            timestamp TEXT PRIMARY KEY,
+            cpu_usage REAL,
+            memory_usage REAL,
+            disk_usage REAL
+        )
+    ''')
+    conn.execute('''
+        CREATE TABLE process_stats (
+            timestamp TEXT,
+            pid INTEGER,
+            process_name TEXT,
+            cpu_usage REAL
+        )
+    ''')
+
+    # Insert test data
+    system_data.to_sql('system_stats', conn, if_exists='append', index=False)
+    process_data.to_sql('process_stats', conn, if_exists='append', index=False)
 
     conn.commit()
     conn.close()
-    print("Test data inserted.")
+
 
 if __name__ == "__main__":
-    insert_test_data()
+    system_data, process_data = create_test_data()
+    populate_database(system_data, process_data)
+    print("Test data populated.")
