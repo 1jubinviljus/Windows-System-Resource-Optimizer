@@ -3,44 +3,42 @@ import sqlite3
 from detection import detect_long_spikes, ROLLING_WINDOW, THRESHOLD
 
 CPU_THRESHOLD = 12 # Idle CPU usage %
+MEM_THRESHOLD = 10 # Idle memory usage %
+DISK_THRESHOLD = 10 # Idle disk usage %
 
-def classify_idle_active(df, cpu_threshold):
-    
-    # Classify each row as 'idle' or 'active' based on the cpu_threshold.
-    
+def classify_idle_active_cpu(df, cpu_threshold):
     df = df.copy()
     df['state'] = df['cpu_usage'].apply(lambda x: 'idle' if x < cpu_threshold else 'active')
     return df[['timestamp', 'cpu_usage', 'state']]
 
+def classify_idle_active_mem(df, mem_threshold):
+    df = df.copy()
+    df['state'] = df['mem_usage'].apply(lambda x: 'idle' if x < mem_threshold else 'active')
+    return df[['timestamp', 'mem_usage', 'state']]
+
+def classify_idle_active_disk(df, disk_threshold):
+    df = df.copy()
+    df['state'] = df['disk_usage'].apply(lambda x: 'idle' if x < disk_threshold else 'active')
+    return df[['timestamp', 'disk_usage', 'state']]
+
+
 def load_process_data():
-    
-    # Load process_stats table from SQLite database.
-    
     conn = sqlite3.connect('build/optimizer.db')
     df = pd.read_sql_query("SELECT * FROM process_stats", conn, parse_dates=["timestamp"])
     conn.close()
     return df
 
 def aggregate_process_cpu(df_process):
-    
-    # Aggregate process CPU usage by timestamp.
-    
     df_agg = df_process.groupby('timestamp')['cpu_usage'].sum().reset_index()
     df_agg.rename(columns={'cpu_usage': 'total_process_cpu'}, inplace=True)
     return df_agg
 
 def correlate_system_and_process_cpu(df_system, df_process_agg):
-    
-    # Merge system and process CPU stats, and calculate correlation.
-    
     df_merged = pd.merge(df_system, df_process_agg, on='timestamp', how='inner')
     correlation = df_merged['cpu_usage'].corr(df_merged['total_process_cpu'])
     return correlation
 
 def load_system_data():
-   
-    # Load system_stats table from SQLite database.
-    
     conn = sqlite3.connect('build/optimizer.db')
     df = pd.read_sql_query("SELECT * FROM system_stats", conn, parse_dates=["timestamp"])
     conn.close()
@@ -55,13 +53,16 @@ def merge_spikes_and_states(df_classified, df_spikes):
     print(counts)
     return df_classified
 
-
 def main():
     df_system = load_system_data()
-    df_system_classified = classify_idle_active(df_system, CPU_THRESHOLD)
+    df_system_classified_cpu = classify_idle_active_cpu(df_system, CPU_THRESHOLD)
+    df_system_classified_mem = classify_idle_active_mem(df_system, MEM_THRESHOLD)
+    df_system_classified_disk = classify_idle_active_disk(df_system, DISK_THRESHOLD)
 
     print("Idle/Active Classification:")
-    print(df_system_classified.tail())
+    print(df_system_classified_cpu.tail())
+    print(df_system_classified_mem.tail())
+    print(df_system_classified_disk.tail())
 
     # Load spikes (you can save them from detection.py or detect here)
     from detection import detect_long_spikes, ROLLING_WINDOW, THRESHOLD  # Reuse constants
