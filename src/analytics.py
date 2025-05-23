@@ -1,7 +1,8 @@
 import pandas as pd
 import sqlite3
+from detection import detect_long_spikes, ROLLING_WINDOW, THRESHOLD
 
-CPU_THRESHOLD = 5 # Idle CPU usage %
+CPU_THRESHOLD = 12 # Idle CPU usage %
 
 def classify_idle_active(df, cpu_threshold):
     
@@ -45,17 +46,37 @@ def load_system_data():
     conn.close()
     return df
 
+def merge_spikes_and_states(df_classified, df_spikes):
+    df_classified = df_classified.copy()
+    df_classified['spike'] = df_classified['timestamp'].isin(df_spikes['timestamp'])
+    spikes_with_state = df_classified[df_classified['spike']]
+    counts = spikes_with_state['state'].value_counts()
+    print("\nSpike counts by state:")
+    print(counts)
+    return df_classified
+
+
 def main():
     df_system = load_system_data()
     df_system_classified = classify_idle_active(df_system, CPU_THRESHOLD)
+
     print("Idle/Active Classification:")
     print(df_system_classified.tail())
+
+    # Load spikes (you can save them from detection.py or detect here)
+    from detection import detect_long_spikes, ROLLING_WINDOW, THRESHOLD  # Reuse constants
+    cpu_spikes = detect_long_spikes(df_system, 'cpu_usage', ROLLING_WINDOW, THRESHOLD,
+                                    min_duration_minutes=0.5, sample_interval_seconds=10)
+
+    # Merge classification and spike info
+    df_with_spike_flags = merge_spikes_and_states(df_system_classified, cpu_spikes)
 
     df_process = load_process_data()
     df_process_agg = aggregate_process_cpu(df_process)
 
     corr = correlate_system_and_process_cpu(df_system, df_process_agg)
     print(f"\nCorrelation between system and total process CPU usage: {corr:.2f}")
+
 
 if __name__ == "__main__":
     main()
