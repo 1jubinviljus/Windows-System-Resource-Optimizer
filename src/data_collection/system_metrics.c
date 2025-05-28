@@ -5,6 +5,8 @@
 #include <winevt.h>    // For Windows Event Log
 #include <windows.h>
 #include <tlhelp32.h>    // For thread enumeration
+#include <pdhmsg.h>
+#include <time.h>
 
 // Add the libraries we need to link against
 #pragma comment(lib, "pdh.lib")
@@ -52,7 +54,7 @@ static BOOL initialize_counters(void) {
         log_error("initialize_counters", "Failed to open CPU query");
         return FALSE;
     }
-    if (PdhAddCounter(cpuQuery, L"\\Processor(_Total)\\% Processor Time", 0, &cpuTotal) != ERROR_SUCCESS) {
+    if (PdhAddCounterW(cpuQuery, L"\\Processor(_Total)\\% Processor Time", 0, &cpuTotal) != ERROR_SUCCESS) {
         log_error("initialize_counters", "Failed to add CPU counter");
         return FALSE;
     }
@@ -63,11 +65,11 @@ static BOOL initialize_counters(void) {
         log_error("initialize_counters", "Failed to open disk query");
         return FALSE;
     }
-    if (PdhAddCounter(diskQuery, L"\\PhysicalDisk(_Total)\\Disk Read Bytes/sec", 0, &diskRead) != ERROR_SUCCESS) {
+    if (PdhAddCounterW(diskQuery, L"\\PhysicalDisk(_Total)\\Disk Read Bytes/sec", 0, &diskRead) != ERROR_SUCCESS) {
         log_error("initialize_counters", "Failed to add disk read counter");
         return FALSE;
     }
-    if (PdhAddCounter(diskQuery, L"\\PhysicalDisk(_Total)\\Disk Write Bytes/sec", 0, &diskWrite) != ERROR_SUCCESS) {
+    if (PdhAddCounterW(diskQuery, L"\\PhysicalDisk(_Total)\\Disk Write Bytes/sec", 0, &diskWrite) != ERROR_SUCCESS) {
         log_error("initialize_counters", "Failed to add disk write counter");
         return FALSE;
     }
@@ -78,11 +80,11 @@ static BOOL initialize_counters(void) {
         log_error("initialize_counters", "Failed to open network query");
         return FALSE;
     }
-    if (PdhAddCounter(networkQuery, L"\\Network Interface(*)\\Bytes Received/sec", 0, &networkIn) != ERROR_SUCCESS) {
+    if (PdhAddCounterW(networkQuery, L"\\Network Interface(*)\\Bytes Received/sec", 0, &networkIn) != ERROR_SUCCESS) {
         log_error("initialize_counters", "Failed to add network in counter");
         return FALSE;
     }
-    if (PdhAddCounter(networkQuery, L"\\Network Interface(*)\\Bytes Sent/sec", 0, &networkOut) != ERROR_SUCCESS) {
+    if (PdhAddCounterW(networkQuery, L"\\Network Interface(*)\\Bytes Sent/sec", 0, &networkOut) != ERROR_SUCCESS) {
         log_error("initialize_counters", "Failed to add network out counter");
         return FALSE;
     }
@@ -143,7 +145,7 @@ void get_disk_metrics(double *read_bytes, double *write_bytes, int *queue_length
     
     // Add queue counter if not already added
     if (queueCounter == NULL) {
-        if (PdhAddCounter(diskQuery, L"\\PhysicalDisk(_Total)\\Current Disk Queue Length",
+        if (PdhAddCounterW(diskQuery, L"\\PhysicalDisk(_Total)\\Current Disk Queue Length",
                          0, &queueCounter) != ERROR_SUCCESS) {
             log_error("get_disk_metrics", "Failed to add queue counter");
             return;
@@ -288,9 +290,9 @@ DiskHealthInfo get_disk_health(void) {
     PDH_HCOUNTER readTime, writeTime, splitIO;
     
     if (PdhOpenQuery(NULL, 0, &query) == ERROR_SUCCESS) {
-        PdhAddCounter(query, L"\\PhysicalDisk(_Total)\\Avg. Disk sec/Read", 0, &readTime);
-        PdhAddCounter(query, L"\\PhysicalDisk(_Total)\\Avg. Disk sec/Write", 0, &writeTime);
-        PdhAddCounter(query, L"\\PhysicalDisk(_Total)\\Split IO/Sec", 0, &splitIO);
+        PdhAddCounterW(query, L"\\PhysicalDisk(_Total)\\Avg. Disk sec/Read", 0, &readTime);
+        PdhAddCounterW(query, L"\\PhysicalDisk(_Total)\\Avg. Disk sec/Write", 0, &writeTime);
+        PdhAddCounterW(query, L"\\PhysicalDisk(_Total)\\Split IO/Sec", 0, &splitIO);
         
         PdhCollectQueryData(query);
         Sleep(1000);  // Wait for a second sample
