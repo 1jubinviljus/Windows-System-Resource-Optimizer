@@ -6,23 +6,39 @@ from datetime import datetime
 def format_bytes(bytes_value):
     try:
         bytes_value = float(bytes_value)
-        for unit in ['B', 'KB', 'MB', 'GB']:
-            if bytes_value < 1024:
+        if bytes_value < 0:  # Invalid negative values
+            return "N/A"
+        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+            if bytes_value < 1024.0:
                 return f"{bytes_value:.2f} {unit}"
-            bytes_value /= 1024
-        return f"{bytes_value:.2f} TB"
+            bytes_value /= 1024.0
+        return f"{bytes_value:.2f} PB"
     except (ValueError, TypeError):
         return "N/A"
 
 def format_percentage(value):
     try:
-        return f"{float(value):.2f}%"
+        value = float(value)
+        if value < 0 or value > 100:
+            return "N/A"
+        return f"{value:.1f}%"
+    except (ValueError, TypeError):
+        return "N/A"
+
+def format_temperature(value):
+    try:
+        value = float(value)
+        if value <= 0 or value > 150:  # Changed to catch 0°C as invalid
+            return "N/A"
+        return f"{value:.1f}°C"
     except (ValueError, TypeError):
         return "N/A"
 
 def format_latency(value):
     try:
         value = float(value)
+        if value < 0:  # Invalid negative values
+            return "N/A"
         if value < 1:
             return f"{value*1000:.2f} ms"
         return f"{value:.2f} s"
@@ -39,11 +55,15 @@ def display_basic_metrics(limit=10):
         cpu_usage,
         cpu_temperature,
         memory_usage,
+        memory_total_free,
         page_file_usage,
         disk_read_bytes,
         disk_write_bytes,
         network_bytes_in,
-        network_bytes_out
+        CASE 
+            WHEN network_bytes_out > 1099511627776 THEN NULL  -- Filter out values > 1TB
+            ELSE network_bytes_out 
+        END as network_bytes_out
     FROM system_metrics 
     ORDER BY timestamp DESC 
     LIMIT ?
@@ -55,13 +75,17 @@ def display_basic_metrics(limit=10):
     df['timestamp'] = pd.to_datetime(df['timestamp'])
     df['timestamp'] = df['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
     df['cpu_usage'] = df['cpu_usage'].apply(format_percentage)
-    df['cpu_temperature'] = df['cpu_temperature'].apply(lambda x: f"{x:.1f}°C" if x > 0 else "N/A")
+    df['cpu_temperature'] = df['cpu_temperature'].apply(format_temperature)
     df['memory_usage'] = df['memory_usage'].apply(format_percentage)
-    df['page_file_usage'] = df['page_file_usage'].apply(format_percentage)
+    df['memory_free'] = df['memory_total_free'].apply(format_bytes)
+    df['page_file_usage'] = df['page_file_usage'].apply(format_bytes)
     df['disk_read_bytes'] = df['disk_read_bytes'].apply(format_bytes)
     df['disk_write_bytes'] = df['disk_write_bytes'].apply(format_bytes)
     df['network_bytes_in'] = df['network_bytes_in'].apply(format_bytes)
     df['network_bytes_out'] = df['network_bytes_out'].apply(format_bytes)
+    
+    # Drop the raw memory_total_free column
+    df = df.drop(columns=['memory_total_free'])
     
     # Rename columns for display
     df.columns = [
@@ -69,6 +93,7 @@ def display_basic_metrics(limit=10):
         'CPU Usage',
         'CPU Temp',
         'Memory Usage',
+        'Memory Free',
         'Page File',
         'Disk Read',
         'Disk Write',

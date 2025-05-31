@@ -7,6 +7,10 @@
 #include <tlhelp32.h>    // For thread enumeration
 #include <pdhmsg.h>
 #include <time.h>
+#include <wbemidl.h>
+#pragma comment(lib, "wbemuuid.lib")
+#pragma comment(lib, "ole32.lib")
+#pragma comment(lib, "oleaut32.lib")
 
 // Add the libraries we need to link against
 #pragma comment(lib, "pdh.lib")
@@ -180,27 +184,24 @@ void get_disk_metrics(double *read_bytes, double *write_bytes, int *queue_length
 void get_network_metrics(double *bytes_in, double *bytes_out) {
     PDH_FMT_COUNTERVALUE inVal, outVal;
     
-    // Initialize return values to -1 in case of error
-    *bytes_in = -1.0;
-    *bytes_out = -1.0;
+    // Initialize return values
+    *bytes_in = 0.0;
+    *bytes_out = 0.0;
     
+    // Collect current data
     if (PdhCollectQueryData(networkQuery) != ERROR_SUCCESS) {
         log_error("get_network_metrics", "Failed to collect network data");
         return;
     }
     
-    if (PdhGetFormattedCounterValue(networkIn, PDH_FMT_DOUBLE, NULL, &inVal) != ERROR_SUCCESS) {
-        log_error("get_network_metrics", "Failed to get bytes received");
-        return;
+    // Get formatted values without the NOCAP100 flag
+    if (PdhGetFormattedCounterValue(networkIn, PDH_FMT_DOUBLE, NULL, &inVal) == ERROR_SUCCESS) {
+        *bytes_in = inVal.doubleValue >= 0 ? inVal.doubleValue : 0;
     }
     
-    if (PdhGetFormattedCounterValue(networkOut, PDH_FMT_DOUBLE, NULL, &outVal) != ERROR_SUCCESS) {
-        log_error("get_network_metrics", "Failed to get bytes sent");
-        return;
+    if (PdhGetFormattedCounterValue(networkOut, PDH_FMT_DOUBLE, NULL, &outVal) == ERROR_SUCCESS) {
+        *bytes_out = outVal.doubleValue >= 0 ? outVal.doubleValue : 0;
     }
-    
-    *bytes_in = inVal.doubleValue;
-    *bytes_out = outVal.doubleValue;
 }
 
 void get_system_events(void) {
@@ -241,9 +242,117 @@ void get_system_events(void) {
 }
 
 double get_cpu_temperature(void) {
-    // Note: This requires WMI (Windows Management Instrumentation)
-    // This is a placeholder - implement with WMI for actual CPU temperature
-    return 0.0;
+    double temperature = -1.0;  // Default to -1 if unable to get temperature
+    HRESULT hr;
+    IWbemLocator *pLoc = NULL;
+    IWbemServices *pSvc = NULL;
+    
+    // Initialize COM
+    hr = CoInitializeEx(0, COINIT_MULTITHREADED);
+    if (FAILED(hr)) {
+        log_error("get_cpu_temperature", "Failed to initialize COM");
+        return temperature;
+    }
+    
+    // Set general COM security levels
+    hr = CoInitializeSecurity(
+        NULL,
+        -1,                          // COM authentication
+        NULL,                        // Authentication services
+        NULL,                        // Reserved
+        RPC_C_AUTHN_LEVEL_DEFAULT,   // Default authentication 
+        RPC_C_IMP_LEVEL_IMPERSONATE, // Default Impersonation  
+        NULL,                        // Authentication info
+        EOAC_NONE,                   // Additional capabilities 
+        NULL                         // Reserved
+    );
+    
+    if (FAILED(hr)) {
+        log_error("get_cpu_temperature", "Failed to initialize security");
+        CoUninitialize();
+        return temperature;
+    }
+    
+    // Obtain the initial locator to WMI
+    hr = CoCreateInstance(
+        &CLSID_WbemLocator,           
+        0, 
+        CLSCTX_INPROC_SERVER, 
+        &IID_IWbemLocator, 
+        (LPVOID *) &pLoc
+    );
+    
+    if (FAILED(hr)) {
+        log_error("get_cpu_temperature", "Failed to create IWbemLocator object");
+        CoUninitialize();
+        return temperature;
+    }
+    
+    // Connect to WMI through the IWbemLocator::ConnectServer method
+    hr = pLoc->lpVtbl->ConnectServer(
+        pLoc,
+        L"ROOT\\WMI",                // Object path of WMI namespace
+        NULL,                        // User name. NULL = current user
+        NULL,                        // User password. NULL = current
+        0,                          // Locale. NULL indicates current
+        0,                          // Security flags    
+        0,                          // Authority (e.g. Kerberos)
+        0,                          // Context object 
+        &pSvc                       // pointer to IWbemServices proxy
+    );
+    
+    if (SUCCEEDED(hr)) {
+        // Set security levels on the proxy
+        hr = CoSetProxyBlanket(
+            (IUnknown *)pSvc,           // Cast to IUnknown for COM interface
+            RPC_C_AUTHN_WINNT,          // RPC_C_AUTHN_xxx
+            RPC_C_AUTHZ_NONE,           // RPC_C_AUTHZ_xxx
+            NULL,                        // Server principal name 
+            RPC_C_AUTHN_LEVEL_CALL,     // RPC_C_AUTHN_LEVEL_xxx 
+            RPC_C_IMP_LEVEL_IMPERSONATE, // RPC_C_IMP_LEVEL_xxx
+            NULL,                        // client identity
+            EOAC_NONE                    // proxy capabilities 
+        );
+        
+        if (SUCCEEDED(hr)) {
+            IEnumWbemClassObject* pEnumerator = NULL;
+            hr = pSvc->lpVtbl->ExecQuery(
+                pSvc,
+                L"WQL", 
+                L"SELECT * FROM MSAcpi_ThermalZoneTemperature",
+                WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY, 
+                NULL,
+                &pEnumerator
+            );
+            
+            if (SUCCEEDED(hr)) {
+                IWbemClassObject *pclsObj = NULL;
+                ULONG uReturn = 0;
+                
+                while (pEnumerator) {
+                    hr = pEnumerator->lpVtbl->Next(pEnumerator, WBEM_INFINITE, 1, &pclsObj, &uReturn);
+                    if (uReturn == 0) break;
+                    
+                    VARIANT vtProp;
+                    hr = pclsObj->lpVtbl->Get(pclsObj, L"CurrentTemperature", 0, &vtProp, 0, 0);
+                    if (SUCCEEDED(hr)) {
+                        // Convert temperature from deciKelvin to Celsius
+                        temperature = (vtProp.intVal / 10.0) - 273.15;
+                        VariantClear(&vtProp);
+                    }
+                    
+                    pclsObj->lpVtbl->Release(pclsObj);
+                    if (temperature != -1.0) break;  // Got valid temperature
+                }
+                
+                pEnumerator->lpVtbl->Release(pEnumerator);
+            }
+        }
+        pSvc->lpVtbl->Release(pSvc);
+    }
+    
+    CoUninitialize();
+    return temperature;
 }
 
 SystemEventCounts get_system_event_counts(void) {
@@ -290,23 +399,36 @@ DiskHealthInfo get_disk_health(void) {
     PDH_HCOUNTER readTime, writeTime, splitIO;
     
     if (PdhOpenQuery(NULL, 0, &query) == ERROR_SUCCESS) {
-        PdhAddCounterW(query, L"\\PhysicalDisk(_Total)\\Avg. Disk sec/Read", 0, &readTime);
-        PdhAddCounterW(query, L"\\PhysicalDisk(_Total)\\Avg. Disk sec/Write", 0, &writeTime);
-        PdhAddCounterW(query, L"\\PhysicalDisk(_Total)\\Split IO/Sec", 0, &splitIO);
+        // Add counters for disk latency and split I/O
+        if (PdhAddCounterW(query, L"\\PhysicalDisk(_Total)\\Avg. Disk sec/Read", 0, &readTime) != ERROR_SUCCESS ||
+            PdhAddCounterW(query, L"\\PhysicalDisk(_Total)\\Avg. Disk sec/Write", 0, &writeTime) != ERROR_SUCCESS ||
+            PdhAddCounterW(query, L"\\PhysicalDisk(_Total)\\Split IO/Sec", 0, &splitIO) != ERROR_SUCCESS) {
+            PdhCloseQuery(query);
+            return info;
+        }
         
+        // First collection to establish baseline
         PdhCollectQueryData(query);
         Sleep(1000);  // Wait for a second sample
-        PdhCollectQueryData(query);
         
-        PDH_FMT_COUNTERVALUE value;
-        PdhGetFormattedCounterValue(readTime, PDH_FMT_DOUBLE, NULL, &value);
-        info.read_latency = value.doubleValue * 1000.0;  // Convert to milliseconds
-        
-        PdhGetFormattedCounterValue(writeTime, PDH_FMT_DOUBLE, NULL, &value);
-        info.write_latency = value.doubleValue * 1000.0;  // Convert to milliseconds
-        
-        PdhGetFormattedCounterValue(splitIO, PDH_FMT_LONG, NULL, &value);
-        info.split_io_count = value.longValue;
+        if (PdhCollectQueryData(query) == ERROR_SUCCESS) {
+            PDH_FMT_COUNTERVALUE value;
+            
+            // Get read latency (convert to milliseconds)
+            if (PdhGetFormattedCounterValue(readTime, PDH_FMT_DOUBLE, NULL, &value) == ERROR_SUCCESS) {
+                info.read_latency = value.doubleValue * 1000.0;  // Convert seconds to milliseconds
+            }
+            
+            // Get write latency (convert to milliseconds)
+            if (PdhGetFormattedCounterValue(writeTime, PDH_FMT_DOUBLE, NULL, &value) == ERROR_SUCCESS) {
+                info.write_latency = value.doubleValue * 1000.0;  // Convert seconds to milliseconds
+            }
+            
+            // Get split I/O count
+            if (PdhGetFormattedCounterValue(splitIO, PDH_FMT_LONG, NULL, &value) == ERROR_SUCCESS) {
+                info.split_io_count = value.longValue;
+            }
+        }
         
         PdhCloseQuery(query);
     }
@@ -316,31 +438,45 @@ DiskHealthInfo get_disk_health(void) {
 
 MemoryFragInfo get_memory_fragmentation(void) {
     MemoryFragInfo info = {0};
-    SYSTEM_INFO sysInfo;
-    GetSystemInfo(&sysInfo);
+    MEMORYSTATUSEX memInfo;
+    memInfo.dwLength = sizeof(MEMORYSTATUSEX);
     
-    MEMORY_BASIC_INFORMATION memInfo;
-    LPVOID addr = 0;
-    SIZE_T totalFree = 0;
-    SIZE_T largestFree = 0;
-    SIZE_T freeRegions = 0;
-    
-    while (VirtualQuery(addr, &memInfo, sizeof(memInfo))) {
-        if (memInfo.State == MEM_FREE) {
-            totalFree += memInfo.RegionSize;
-            largestFree = max(largestFree, memInfo.RegionSize);
-            freeRegions++;
+    if (GlobalMemoryStatusEx(&memInfo)) {
+        // Get total and available physical memory (in bytes)
+        info.total_free = memInfo.ullAvailPhys;  // Use the 64-bit value directly
+        
+        // Get largest free block using VirtualQuery
+        MEMORY_BASIC_INFORMATION memBasicInfo;
+        LPVOID addr = 0;
+        SIZE_T largestFree = 0;
+        
+        while (VirtualQuery(addr, &memBasicInfo, sizeof(memBasicInfo))) {
+            if (memBasicInfo.State == MEM_FREE) {
+                if (memBasicInfo.RegionSize > largestFree) {
+                    largestFree = memBasicInfo.RegionSize;
+                }
+            }
+            addr = (LPVOID)((DWORD_PTR)memBasicInfo.BaseAddress + memBasicInfo.RegionSize);
+            
+            // Break if we've gone past physical memory or if address wraps around
+            if ((DWORD_PTR)addr >= (DWORD_PTR)memInfo.ullTotalPhys || (DWORD_PTR)addr < (DWORD_PTR)memBasicInfo.BaseAddress) {
+                break;
+            }
         }
-        addr = (LPVOID)((DWORD_PTR)memInfo.BaseAddress + memInfo.RegionSize);
-        if (addr >= (LPVOID)((DWORD_PTR)sysInfo.lpMaximumApplicationAddress)) {
-            break;
+        
+        info.largest_free = largestFree;
+        
+        // Calculate fragmentation as percentage of non-contiguous free memory
+        if (info.total_free > 0) {
+            info.fragmentation_percent = ((double)(info.total_free - info.largest_free) / info.total_free) * 100.0;
+            // Cap fragmentation at 100%
+            if (info.fragmentation_percent > 100.0) {
+                info.fragmentation_percent = 100.0;
+            }
+        } else {
+            info.fragmentation_percent = 0.0;
         }
     }
-    
-    info.total_free = totalFree;
-    info.largest_free = largestFree;
-    info.fragmentation_percent = freeRegions > 1 ? 
-        (1.0 - ((double)largestFree / totalFree)) * 100.0 : 0.0;
     
     return info;
 }
@@ -363,7 +499,14 @@ void collect_system_metrics(sqlite3 *db, const char *timestamp) {
     double cpu = get_cpu_usage();
     double cpu_temp = get_cpu_temperature();
     double mem = get_memory_usage();
-    double page_file = get_page_file_usage();
+    
+    // Get page file usage in bytes
+    MEMORYSTATUSEX memInfo;
+    memInfo.dwLength = sizeof(MEMORYSTATUSEX);
+    double page_file = 0.0;
+    if (GlobalMemoryStatusEx(&memInfo)) {
+        page_file = (double)(memInfo.ullTotalPageFile - memInfo.ullAvailPageFile);
+    }
     
     double disk_read, disk_write;
     int disk_queue;
