@@ -19,6 +19,12 @@ CREATE TABLE IF NOT EXISTS system_metrics (
     memory_fragmentation REAL,
     memory_largest_free INTEGER,
     memory_total_free INTEGER,
+    memory_block_count INTEGER,      -- Number of free memory blocks
+    memory_avg_block_size REAL,      -- Average size of free blocks
+    memory_small_blocks INTEGER,     -- Blocks < 1MB
+    memory_medium_blocks INTEGER,    -- Blocks 1MB-16MB
+    memory_large_blocks INTEGER,     -- Blocks > 16MB
+    memory_virtual_free INTEGER,     -- Total free virtual memory
     PRIMARY KEY (timestamp)
 );
 

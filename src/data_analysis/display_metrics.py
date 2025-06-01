@@ -118,6 +118,12 @@ def display_advanced_metrics(limit=5):
         memory_fragmentation,
         memory_largest_free,
         memory_total_free,
+        memory_block_count,
+        memory_avg_block_size,
+        memory_small_blocks,
+        memory_medium_blocks,
+        memory_large_blocks,
+        memory_virtual_free,
         crash_count,
         error_count,
         warning_count
@@ -136,57 +142,105 @@ def display_advanced_metrics(limit=5):
     df['memory_fragmentation'] = df['memory_fragmentation'].apply(format_percentage)
     df['memory_largest_free'] = df['memory_largest_free'].apply(format_bytes)
     df['memory_total_free'] = df['memory_total_free'].apply(format_bytes)
+    df['memory_avg_block_size'] = df['memory_avg_block_size'].apply(format_bytes)
+    df['memory_virtual_free'] = df['memory_virtual_free'].apply(format_bytes)
+    
+    # Split the display into two tables for better readability
+    # Memory metrics
+    memory_df = df[[
+        'timestamp',
+        'memory_fragmentation',
+        'memory_largest_free',
+        'memory_total_free',
+        'memory_block_count',
+        'memory_avg_block_size',
+        'memory_small_blocks',
+        'memory_medium_blocks',
+        'memory_large_blocks',
+        'memory_virtual_free'
+    ]].copy()
+    
+    # System metrics
+    system_df = df[[
+        'timestamp',
+        'disk_read_latency',
+        'disk_write_latency',
+        'disk_split_io',
+        'crash_count',
+        'error_count',
+        'warning_count'
+    ]].copy()
     
     # Rename columns for display
-    df.columns = [
+    memory_df.columns = [
+        'Timestamp',
+        'Memory Frag',
+        'Largest Free',
+        'Total Free',
+        'Block Count',
+        'Avg Block Size',
+        'Blocks <1MB',
+        'Blocks 1-16MB',
+        'Blocks >16MB',
+        'Virtual Free'
+    ]
+    
+    system_df.columns = [
         'Timestamp',
         'Read Latency',
         'Write Latency',
         'Split I/Os',
-        'Memory Frag',
-        'Largest Free',
-        'Total Free',
         'Crashes',
         'Errors',
         'Warnings'
     ]
     
-    print("\nSystem Resource Monitor - Advanced Metrics")
+    print("\nSystem Resource Monitor - Memory Metrics")
     print("=" * 120)
-    print(tabulate(df, headers='keys', tablefmt='pretty', showindex=False))
+    print(tabulate(memory_df, headers='keys', tablefmt='pretty', showindex=False))
+    
+    print("\nSystem Resource Monitor - System Metrics")
+    print("=" * 120)
+    print(tabulate(system_df, headers='keys', tablefmt='pretty', showindex=False))
 
 def display_system_health():
     conn = sqlite3.connect('system_metrics.db')
     
-    # Get latest record
+    # Get latest record with additional memory metrics
     latest = pd.read_sql_query("""
         SELECT 
             cpu_usage,
             memory_usage,
             disk_queue_length,
             memory_fragmentation,
+            memory_block_count,
+            memory_avg_block_size,
             error_count + warning_count as issue_count
         FROM system_metrics 
         ORDER BY timestamp DESC 
         LIMIT 1
     """, conn)
     
-    # Get averages
+    # Get averages with additional memory metrics
     averages = pd.read_sql_query("""
         SELECT 
             ROUND(AVG(cpu_usage), 2) as avg_cpu,
             ROUND(AVG(memory_usage), 2) as avg_mem,
             ROUND(AVG(disk_queue_length), 2) as avg_disk_queue,
             ROUND(AVG(memory_fragmentation), 2) as avg_frag,
+            ROUND(AVG(memory_block_count), 2) as avg_blocks,
+            ROUND(AVG(memory_avg_block_size), 2) as avg_block_size,
             ROUND(AVG(error_count + warning_count), 2) as avg_issues
         FROM system_metrics
     """, conn)
     
     print("\nSystem Health Summary")
-    print("=" * 40)
+    print("=" * 60)
     print(f"CPU Usage: Current: {format_percentage(latest['cpu_usage'][0])} | Average: {format_percentage(averages['avg_cpu'][0])}")
     print(f"Memory Usage: Current: {format_percentage(latest['memory_usage'][0])} | Average: {format_percentage(averages['avg_mem'][0])}")
     print(f"Memory Fragmentation: Current: {format_percentage(latest['memory_fragmentation'][0])} | Average: {format_percentage(averages['avg_frag'][0])}")
+    print(f"Memory Blocks: Current: {latest['memory_block_count'][0]} | Average: {averages['avg_blocks'][0]:.0f}")
+    print(f"Avg Block Size: Current: {format_bytes(latest['memory_avg_block_size'][0])} | Average: {format_bytes(averages['avg_block_size'][0])}")
     print(f"Disk Queue Length: Current: {latest['disk_queue_length'][0]:.1f} | Average: {averages['avg_disk_queue'][0]:.1f}")
     print(f"System Issues: Current: {int(latest['issue_count'][0])} | Average: {averages['avg_issues'][0]:.1f}")
     

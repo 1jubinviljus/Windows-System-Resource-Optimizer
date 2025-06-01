@@ -41,8 +41,14 @@ typedef struct {
 } DiskHealthInfo;
 
 typedef struct {
-    SIZE_T total_free;
-    SIZE_T largest_free;
+    SIZE_T total_free;           // Total free physical memory
+    SIZE_T largest_free;         // Largest free block
+    SIZE_T virtual_total_free;   // Total free virtual memory
+    DWORD free_block_count;      // Number of free memory blocks
+    double avg_block_size;       // Average size of free blocks
+    DWORD small_blocks;          // Blocks < 1MB
+    DWORD medium_blocks;         // Blocks 1MB-16MB
+    DWORD large_blocks;          // Blocks > 16MB
     double fragmentation_percent;
 } MemoryFragInfo;
 
@@ -442,39 +448,74 @@ MemoryFragInfo get_memory_fragmentation(void) {
     memInfo.dwLength = sizeof(MEMORYSTATUSEX);
     
     if (GlobalMemoryStatusEx(&memInfo)) {
-        // Get total and available physical memory (in bytes)
-        info.total_free = memInfo.ullAvailPhys;  // Use the 64-bit value directly
+        // Get physical memory info
+        info.total_free = memInfo.ullAvailPhys;
+        info.virtual_total_free = memInfo.ullAvailVirtual;
         
-        // Get largest free block using VirtualQuery
+        // Get system info for memory ranges
+        SYSTEM_INFO sysInfo;
+        GetSystemInfo(&sysInfo);
+        
+        // Get memory block information using VirtualQuery
         MEMORY_BASIC_INFORMATION memBasicInfo;
-        LPVOID addr = 0;
-        SIZE_T largestFree = 0;
+        LPVOID addr = sysInfo.lpMinimumApplicationAddress;
+        SIZE_T totalVirtualFree = 0;
+        SIZE_T totalBlockSize = 0;
         
-        while (VirtualQuery(addr, &memBasicInfo, sizeof(memBasicInfo))) {
-            if (memBasicInfo.State == MEM_FREE) {
-                if (memBasicInfo.RegionSize > largestFree) {
-                    largestFree = memBasicInfo.RegionSize;
+        // Scan through the entire user-mode address space
+        while (addr < sysInfo.lpMaximumApplicationAddress) {
+            if (VirtualQuery(addr, &memBasicInfo, sizeof(memBasicInfo))) {
+                if (memBasicInfo.State == MEM_FREE) {
+                    // Track largest block (but only if it's a reasonable size)
+                    if (memBasicInfo.RegionSize > info.largest_free && 
+                        memBasicInfo.RegionSize <= info.total_free) {
+                        info.largest_free = memBasicInfo.RegionSize;
+                    }
+                    
+                    // Count blocks by size
+                    if (memBasicInfo.RegionSize < (1024 * 1024)) { // < 1MB
+                        info.small_blocks++;
+                    } else if (memBasicInfo.RegionSize < (16 * 1024 * 1024)) { // 1MB-16MB
+                        info.medium_blocks++;
+                    } else if (memBasicInfo.RegionSize <= info.total_free) { // > 16MB but <= total free
+                        info.large_blocks++;
+                    }
+                    
+                    // Only count reasonable block sizes
+                    if (memBasicInfo.RegionSize <= info.total_free) {
+                        info.free_block_count++;
+                        totalBlockSize += memBasicInfo.RegionSize;
+                    }
                 }
-            }
-            addr = (LPVOID)((DWORD_PTR)memBasicInfo.BaseAddress + memBasicInfo.RegionSize);
-            
-            // Break if we've gone past physical memory or if address wraps around
-            if ((DWORD_PTR)addr >= (DWORD_PTR)memInfo.ullTotalPhys || (DWORD_PTR)addr < (DWORD_PTR)memBasicInfo.BaseAddress) {
-                break;
+                
+                // Move to next region
+                addr = (LPVOID)((DWORD_PTR)memBasicInfo.BaseAddress + memBasicInfo.RegionSize);
+                
+                // Break if we wrap around or exceed max address
+                if ((DWORD_PTR)addr < (DWORD_PTR)memBasicInfo.BaseAddress ||
+                    addr >= sysInfo.lpMaximumApplicationAddress) {
+                    break;
+                }
+            } else {
+                // If VirtualQuery fails, move to the next page
+                addr = (LPVOID)((DWORD_PTR)addr + sysInfo.dwPageSize);
             }
         }
         
-        info.largest_free = largestFree;
+        // Calculate average block size
+        if (info.free_block_count > 0) {
+            info.avg_block_size = (double)totalBlockSize / info.free_block_count;
+        }
         
-        // Calculate fragmentation as percentage of non-contiguous free memory
+        // Calculate fragmentation based on physical memory
         if (info.total_free > 0) {
+            // Use physical memory metrics for fragmentation calculation
             info.fragmentation_percent = ((double)(info.total_free - info.largest_free) / info.total_free) * 100.0;
-            // Cap fragmentation at 100%
             if (info.fragmentation_percent > 100.0) {
                 info.fragmentation_percent = 100.0;
+            } else if (info.fragmentation_percent < 0.0) {
+                info.fragmentation_percent = 0.0;
             }
-        } else {
-            info.fragmentation_percent = 0.0;
         }
     }
     
@@ -528,10 +569,14 @@ void collect_system_metrics(sqlite3 *db, const char *timestamp) {
         "disk_queue_length, network_bytes_in, network_bytes_out, "
         "crash_count, error_count, warning_count, "
         "disk_read_latency, disk_write_latency, disk_split_io, "
-        "memory_fragmentation, memory_largest_free, memory_total_free"
+        "memory_fragmentation, memory_largest_free, memory_total_free, "
+        "memory_block_count, memory_avg_block_size, "
+        "memory_small_blocks, memory_medium_blocks, memory_large_blocks, "
+        "memory_virtual_free"
         ") VALUES ("
         "'%s', %.2f, %.2f, %.2f, %.2f, %.2f, %.2f, %d, %.2f, %.2f, "
-        "%lu, %lu, %lu, %.2f, %.2f, %lu, %.2f, %llu, %llu"
+        "%lu, %lu, %lu, %.2f, %.2f, %lu, %.2f, %llu, %llu, "
+        "%lu, %.2f, %lu, %lu, %lu, %llu"
         ");",
         timestamp, cpu, cpu_temp, mem, page_file,
         disk_read, disk_write, disk_queue, net_in, net_out,
@@ -539,7 +584,13 @@ void collect_system_metrics(sqlite3 *db, const char *timestamp) {
         diskHealth.read_latency, diskHealth.write_latency, diskHealth.split_io_count,
         memFrag.fragmentation_percent, 
         (unsigned long long)memFrag.largest_free, 
-        (unsigned long long)memFrag.total_free
+        (unsigned long long)memFrag.total_free,
+        (unsigned long)memFrag.free_block_count,
+        memFrag.avg_block_size,
+        (unsigned long)memFrag.small_blocks,
+        (unsigned long)memFrag.medium_blocks,
+        (unsigned long)memFrag.large_blocks,
+        (unsigned long long)memFrag.virtual_total_free
     );
     
     // Execute SQL
