@@ -24,7 +24,9 @@ CREATE TABLE IF NOT EXISTS system_metrics (
     memory_small_blocks INTEGER,     -- Blocks < 1MB
     memory_medium_blocks INTEGER,    -- Blocks 1MB-16MB
     memory_large_blocks INTEGER,     -- Blocks > 16MB
+    memory_virtual_total INTEGER,    -- Total virtual memory
     memory_virtual_free INTEGER,     -- Total free virtual memory
+    memory_virtual_usage REAL,       -- Virtual memory usage percentage
     PRIMARY KEY (timestamp)
 );
 

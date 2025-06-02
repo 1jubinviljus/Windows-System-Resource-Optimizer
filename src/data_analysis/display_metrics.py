@@ -8,21 +8,27 @@ def format_bytes(bytes_value):
         bytes_value = float(bytes_value)
         if bytes_value < 0:  # Invalid negative values
             return "N/A"
+            
+        # Handle potential overflow values
+        if bytes_value >= float(2**64 - 1):  # Max unsigned 64-bit value
+            return "N/A"
+            
         for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-            if bytes_value < 1024.0:
+            if bytes_value < 1024.0 or unit == 'TB':
                 return f"{bytes_value:.2f} {unit}"
             bytes_value /= 1024.0
-        return f"{bytes_value:.2f} PB"
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
         return "N/A"
 
 def format_percentage(value):
     try:
         value = float(value)
-        if value < 0 or value > 100:
+        if value < 0 or value > 100 or value >= float(2**64 - 1):
+            return "N/A"
+        if value == 0 and "virtual" in str(value).lower():  # Special case for virtual memory
             return "N/A"
         return f"{value:.1f}%"
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
         return "N/A"
 
 def format_temperature(value):
@@ -123,7 +129,18 @@ def display_advanced_metrics(limit=5):
         memory_small_blocks,
         memory_medium_blocks,
         memory_large_blocks,
-        memory_virtual_free,
+        CASE 
+            WHEN memory_virtual_total > 17592186044416 THEN NULL  -- Filter out values > 16TB
+            ELSE memory_virtual_total 
+        END as memory_virtual_total,
+        CASE 
+            WHEN memory_virtual_free > memory_virtual_total THEN NULL
+            ELSE memory_virtual_free 
+        END as memory_virtual_free,
+        CASE 
+            WHEN memory_virtual_usage <= 0 OR memory_virtual_usage > 100 THEN NULL
+            ELSE memory_virtual_usage 
+        END as memory_virtual_usage,
         crash_count,
         error_count,
         warning_count
@@ -143,9 +160,11 @@ def display_advanced_metrics(limit=5):
     df['memory_largest_free'] = df['memory_largest_free'].apply(format_bytes)
     df['memory_total_free'] = df['memory_total_free'].apply(format_bytes)
     df['memory_avg_block_size'] = df['memory_avg_block_size'].apply(format_bytes)
+    df['memory_virtual_total'] = df['memory_virtual_total'].apply(format_bytes)
     df['memory_virtual_free'] = df['memory_virtual_free'].apply(format_bytes)
+    df['memory_virtual_usage'] = df['memory_virtual_usage'].apply(format_percentage)
     
-    # Split the display into two tables for better readability
+    # Split the display into three tables for better readability
     # Memory metrics
     memory_df = df[[
         'timestamp',
@@ -156,7 +175,14 @@ def display_advanced_metrics(limit=5):
         'memory_avg_block_size',
         'memory_small_blocks',
         'memory_medium_blocks',
-        'memory_large_blocks',
+        'memory_large_blocks'
+    ]].copy()
+    
+    # Virtual memory metrics
+    virtual_df = df[[
+        'timestamp',
+        'memory_virtual_usage',
+        'memory_virtual_total',
         'memory_virtual_free'
     ]].copy()
     
@@ -181,7 +207,13 @@ def display_advanced_metrics(limit=5):
         'Avg Block Size',
         'Blocks <1MB',
         'Blocks 1-16MB',
-        'Blocks >16MB',
+        'Blocks >16MB'
+    ]
+    
+    virtual_df.columns = [
+        'Timestamp',
+        'Virtual Usage',
+        'Virtual Total',
         'Virtual Free'
     ]
     
@@ -198,6 +230,10 @@ def display_advanced_metrics(limit=5):
     print("\nSystem Resource Monitor - Memory Metrics")
     print("=" * 120)
     print(tabulate(memory_df, headers='keys', tablefmt='pretty', showindex=False))
+    
+    print("\nSystem Resource Monitor - Virtual Memory Metrics")
+    print("=" * 120)
+    print(tabulate(virtual_df, headers='keys', tablefmt='pretty', showindex=False))
     
     print("\nSystem Resource Monitor - System Metrics")
     print("=" * 120)

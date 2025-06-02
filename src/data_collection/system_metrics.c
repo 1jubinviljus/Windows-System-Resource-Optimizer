@@ -8,6 +8,7 @@
 #include <pdhmsg.h>
 #include <time.h>
 #include <wbemidl.h>
+#include <limits.h>     // For ULLONG_MAX
 #pragma comment(lib, "wbemuuid.lib")
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "oleaut32.lib")
@@ -43,6 +44,7 @@ typedef struct {
 typedef struct {
     SIZE_T total_free;           // Total free physical memory
     SIZE_T largest_free;         // Largest free block
+    SIZE_T virtual_total;        // Total virtual memory
     SIZE_T virtual_total_free;   // Total free virtual memory
     DWORD free_block_count;      // Number of free memory blocks
     double avg_block_size;       // Average size of free blocks
@@ -50,6 +52,7 @@ typedef struct {
     DWORD medium_blocks;         // Blocks 1MB-16MB
     DWORD large_blocks;          // Blocks > 16MB
     double fragmentation_percent;
+    double virtual_usage_percent; // Virtual memory usage percentage
 } MemoryFragInfo;
 
 // Error handling helper
@@ -448,9 +451,47 @@ MemoryFragInfo get_memory_fragmentation(void) {
     memInfo.dwLength = sizeof(MEMORYSTATUSEX);
     
     if (GlobalMemoryStatusEx(&memInfo)) {
-        // Get physical memory info
+        // Get physical memory info with overflow check
         info.total_free = memInfo.ullAvailPhys;
-        info.virtual_total_free = memInfo.ullAvailVirtual;
+        
+        // Calculate virtual memory with overflow protection
+        ULONGLONG totalPhysical = memInfo.ullTotalPhys;
+        ULONGLONG totalPageFile = memInfo.ullTotalPageFile;
+        ULONGLONG availPageFile = memInfo.ullAvailPageFile;
+        
+        // Check for potential overflow before addition
+        if (totalPageFile > (ULLONG_MAX - totalPhysical)) {
+            // Handle overflow case - use maximum safe value
+            info.virtual_total = ULLONG_MAX;
+        } else {
+            info.virtual_total = totalPhysical + totalPageFile;
+        }
+        
+        // Check for overflow in available memory calculation
+        if (availPageFile > (ULLONG_MAX - memInfo.ullAvailPhys)) {
+            // Handle overflow case - use maximum safe value
+            info.virtual_total_free = ULLONG_MAX;
+        } else {
+            info.virtual_total_free = memInfo.ullAvailPhys + availPageFile;
+        }
+        
+        // Ensure virtual_total_free doesn't exceed virtual_total
+        if (info.virtual_total_free > info.virtual_total) {
+            info.virtual_total_free = info.virtual_total;
+        }
+        
+        // Calculate virtual memory usage percentage with proper casting
+        if (info.virtual_total > 0) {
+            double used = (double)(info.virtual_total - info.virtual_total_free);
+            info.virtual_usage_percent = (used / (double)info.virtual_total) * 100.0;
+            
+            // Ensure percentage is within valid range
+            if (info.virtual_usage_percent > 100.0) {
+                info.virtual_usage_percent = 100.0;
+            } else if (info.virtual_usage_percent < 0.0) {
+                info.virtual_usage_percent = 0.0;
+            }
+        }
         
         // Get system info for memory ranges
         SYSTEM_INFO sysInfo;
@@ -572,11 +613,11 @@ void collect_system_metrics(sqlite3 *db, const char *timestamp) {
         "memory_fragmentation, memory_largest_free, memory_total_free, "
         "memory_block_count, memory_avg_block_size, "
         "memory_small_blocks, memory_medium_blocks, memory_large_blocks, "
-        "memory_virtual_free"
+        "memory_virtual_total, memory_virtual_free, memory_virtual_usage"
         ") VALUES ("
         "'%s', %.2f, %.2f, %.2f, %.2f, %.2f, %.2f, %d, %.2f, %.2f, "
         "%lu, %lu, %lu, %.2f, %.2f, %lu, %.2f, %llu, %llu, "
-        "%lu, %.2f, %lu, %lu, %lu, %llu"
+        "%lu, %.2f, %lu, %lu, %lu, %llu, %llu, %.2f"
         ");",
         timestamp, cpu, cpu_temp, mem, page_file,
         disk_read, disk_write, disk_queue, net_in, net_out,
@@ -590,7 +631,9 @@ void collect_system_metrics(sqlite3 *db, const char *timestamp) {
         (unsigned long)memFrag.small_blocks,
         (unsigned long)memFrag.medium_blocks,
         (unsigned long)memFrag.large_blocks,
-        (unsigned long long)memFrag.virtual_total_free
+        (unsigned long long)memFrag.virtual_total,
+        (unsigned long long)memFrag.virtual_total_free,
+        memFrag.virtual_usage_percent
     );
     
     // Execute SQL
