@@ -2,7 +2,6 @@
 CREATE TABLE IF NOT EXISTS system_metrics (
     timestamp TEXT,
     cpu_usage REAL,
-    cpu_temperature REAL,
     memory_usage REAL,
     page_file_usage REAL,
     disk_read_bytes REAL,

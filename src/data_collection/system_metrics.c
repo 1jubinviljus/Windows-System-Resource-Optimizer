@@ -132,6 +132,10 @@ double get_page_file_usage(void) {
 void get_disk_metrics(double *read_bytes, double *write_bytes, int *queue_length) {
     PDH_FMT_COUNTERVALUE readVal, writeVal, queueVal;
     static PDH_HCOUNTER queueCounter = NULL;
+    static double lastReadBytes = 0;
+    static double lastWriteBytes = 0;
+    static ULONGLONG lastCollectTime = 0;
+    ULONGLONG currentTime = GetTickCount64();
     
     // Initialize return values to -1 in case of error
     *read_bytes = -1.0;
@@ -166,9 +170,29 @@ void get_disk_metrics(double *read_bytes, double *write_bytes, int *queue_length
         log_error("get_disk_metrics", "Failed to get queue length");
         return;
     }
+
+    // Calculate time delta in seconds
+    double timeDelta = (currentTime - lastCollectTime) / 1000.0;  // Convert to seconds
     
-    *read_bytes = readVal.doubleValue;
-    *write_bytes = writeVal.doubleValue;
+    if (lastCollectTime > 0 && timeDelta > 0) {
+        // Calculate delta values and convert to bytes per second
+        *read_bytes = (readVal.doubleValue - lastReadBytes) / timeDelta;
+        *write_bytes = (writeVal.doubleValue - lastWriteBytes) / timeDelta;
+        
+        // Handle potential negative values due to counter reset
+        if (*read_bytes < 0) *read_bytes = 0;
+        if (*write_bytes < 0) *write_bytes = 0;
+    } else {
+        // First collection, initialize values
+        *read_bytes = 0;
+        *write_bytes = 0;
+    }
+    
+    // Store values for next calculation
+    lastReadBytes = readVal.doubleValue;
+    lastWriteBytes = writeVal.doubleValue;
+    lastCollectTime = currentTime;
+    
     *queue_length = queueVal.longValue;
 }
 
@@ -538,7 +562,6 @@ void collect_system_metrics(sqlite3 *db, const char *timestamp) {
     
     // Collect basic metrics
     double cpu = get_cpu_usage();
-    double cpu_temp = get_cpu_temperature();
     double mem = get_memory_usage();
     
     // Get page file usage in bytes
@@ -558,10 +581,10 @@ void collect_system_metrics(sqlite3 *db, const char *timestamp) {
     DiskHealthInfo diskHealth = get_disk_health();
     MemoryFragInfo memFrag = get_memory_fragmentation();
     
-    // Create SQL insert statement with all metrics (removed network metrics)
+    // Create SQL insert statement with all metrics
     snprintf(sql, sizeof(sql),
         "INSERT INTO system_metrics ("
-        "timestamp, cpu_usage, cpu_temperature, memory_usage, "
+        "timestamp, cpu_usage, memory_usage, "
         "page_file_usage, disk_read_bytes, disk_write_bytes, "
         "disk_queue_length, crash_count, error_count, warning_count, "
         "disk_read_latency, disk_write_latency, disk_split_io, "
@@ -570,11 +593,11 @@ void collect_system_metrics(sqlite3 *db, const char *timestamp) {
         "memory_small_blocks, memory_medium_blocks, memory_large_blocks, "
         "memory_virtual_total, memory_virtual_free, memory_virtual_usage"
         ") VALUES ("
-        "'%s', %.2f, %.2f, %.2f, %.2f, %.2f, %.2f, %d, "
+        "'%s', %.2f, %.2f, %.2f, %.2f, %.2f, %d, "
         "%lu, %lu, %lu, %.2f, %.2f, %lu, %.2f, %llu, %llu, "
         "%lu, %.2f, %lu, %lu, %lu, %llu, %llu, %.2f"
         ");",
-        timestamp, cpu, cpu_temp, mem, page_file,
+        timestamp, cpu, mem, page_file,
         disk_read, disk_write, disk_queue,
         eventCounts.crash_count, eventCounts.error_count, eventCounts.warning_count,
         diskHealth.read_latency, diskHealth.write_latency, diskHealth.split_io_count,

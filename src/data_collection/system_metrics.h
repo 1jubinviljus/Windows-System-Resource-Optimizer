@@ -9,7 +9,6 @@ void collect_system_metrics(sqlite3 *db, const char *timestamp);
 
 // Individual metric collection functions
 double get_cpu_usage(void);
-double get_cpu_temperature(void);
 double get_memory_usage(void);
 double get_page_file_usage(void);
 

@@ -31,15 +31,6 @@ def format_percentage(value):
     except (ValueError, TypeError, OverflowError):
         return "N/A"
 
-def format_temperature(value):
-    try:
-        value = float(value)
-        if value <= 0 or value > 150:  # Changed to catch 0°C as invalid
-            return "N/A"
-        return f"{value:.1f}°C"
-    except (ValueError, TypeError):
-        return "N/A"
-
 def format_latency(value):
     try:
         value = float(value)
@@ -59,7 +50,6 @@ def display_basic_metrics(limit=10):
     SELECT 
         timestamp,
         cpu_usage,
-        cpu_temperature,
         memory_usage,
         memory_total_free,
         page_file_usage,
@@ -76,7 +66,6 @@ def display_basic_metrics(limit=10):
     df['timestamp'] = pd.to_datetime(df['timestamp'])
     df['timestamp'] = df['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
     df['cpu_usage'] = df['cpu_usage'].apply(format_percentage)
-    df['cpu_temperature'] = df['cpu_temperature'].apply(format_temperature)
     df['memory_usage'] = df['memory_usage'].apply(format_percentage)
     df['memory_free'] = df['memory_total_free'].apply(format_bytes)
     df['page_file_usage'] = df['page_file_usage'].apply(format_bytes)
@@ -90,7 +79,6 @@ def display_basic_metrics(limit=10):
     df.columns = [
         'Timestamp',
         'CPU Usage',
-        'CPU Temp',
         'Memory Usage',
         'Memory Free',
         'Page File',
