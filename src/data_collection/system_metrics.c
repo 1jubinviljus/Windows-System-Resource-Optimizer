@@ -21,12 +21,9 @@
 // Global PDH (Performance Data Helper) variables
 static PDH_HQUERY cpuQuery;
 static PDH_HQUERY diskQuery;
-static PDH_HQUERY networkQuery;
 static PDH_HCOUNTER cpuTotal;
 static PDH_HCOUNTER diskRead;
 static PDH_HCOUNTER diskWrite;
-static PDH_HCOUNTER networkIn;
-static PDH_HCOUNTER networkOut;
 
 // Add these new structures after your existing global variables
 typedef struct {
@@ -88,21 +85,6 @@ static BOOL initialize_counters(void) {
     }
     PdhCollectQueryData(diskQuery);
     
-    // Network Counters
-    if (PdhOpenQuery(NULL, 0, &networkQuery) != ERROR_SUCCESS) {
-        log_error("initialize_counters", "Failed to open network query");
-        return FALSE;
-    }
-    if (PdhAddCounterW(networkQuery, L"\\Network Interface(*)\\Bytes Received/sec", 0, &networkIn) != ERROR_SUCCESS) {
-        log_error("initialize_counters", "Failed to add network in counter");
-        return FALSE;
-    }
-    if (PdhAddCounterW(networkQuery, L"\\Network Interface(*)\\Bytes Sent/sec", 0, &networkOut) != ERROR_SUCCESS) {
-        log_error("initialize_counters", "Failed to add network out counter");
-        return FALSE;
-    }
-    PdhCollectQueryData(networkQuery);
-
     return TRUE;
 }
 
@@ -188,29 +170,6 @@ void get_disk_metrics(double *read_bytes, double *write_bytes, int *queue_length
     *read_bytes = readVal.doubleValue;
     *write_bytes = writeVal.doubleValue;
     *queue_length = queueVal.longValue;
-}
-
-void get_network_metrics(double *bytes_in, double *bytes_out) {
-    PDH_FMT_COUNTERVALUE inVal, outVal;
-    
-    // Initialize return values
-    *bytes_in = 0.0;
-    *bytes_out = 0.0;
-    
-    // Collect current data
-    if (PdhCollectQueryData(networkQuery) != ERROR_SUCCESS) {
-        log_error("get_network_metrics", "Failed to collect network data");
-        return;
-    }
-    
-    // Get formatted values without the NOCAP100 flag
-    if (PdhGetFormattedCounterValue(networkIn, PDH_FMT_DOUBLE, NULL, &inVal) == ERROR_SUCCESS) {
-        *bytes_in = inVal.doubleValue >= 0 ? inVal.doubleValue : 0;
-    }
-    
-    if (PdhGetFormattedCounterValue(networkOut, PDH_FMT_DOUBLE, NULL, &outVal) == ERROR_SUCCESS) {
-        *bytes_out = outVal.doubleValue >= 0 ? outVal.doubleValue : 0;
-    }
 }
 
 void get_system_events(void) {
@@ -594,33 +553,29 @@ void collect_system_metrics(sqlite3 *db, const char *timestamp) {
     int disk_queue;
     get_disk_metrics(&disk_read, &disk_write, &disk_queue);
     
-    double net_in, net_out;
-    get_network_metrics(&net_in, &net_out);
-    
     // Collect advanced metrics
     SystemEventCounts eventCounts = get_system_event_counts();
     DiskHealthInfo diskHealth = get_disk_health();
     MemoryFragInfo memFrag = get_memory_fragmentation();
     
-    // Create SQL insert statement with all metrics
+    // Create SQL insert statement with all metrics (removed network metrics)
     snprintf(sql, sizeof(sql),
         "INSERT INTO system_metrics ("
         "timestamp, cpu_usage, cpu_temperature, memory_usage, "
         "page_file_usage, disk_read_bytes, disk_write_bytes, "
-        "disk_queue_length, network_bytes_in, network_bytes_out, "
-        "crash_count, error_count, warning_count, "
+        "disk_queue_length, crash_count, error_count, warning_count, "
         "disk_read_latency, disk_write_latency, disk_split_io, "
         "memory_fragmentation, memory_largest_free, memory_total_free, "
         "memory_block_count, memory_avg_block_size, "
         "memory_small_blocks, memory_medium_blocks, memory_large_blocks, "
         "memory_virtual_total, memory_virtual_free, memory_virtual_usage"
         ") VALUES ("
-        "'%s', %.2f, %.2f, %.2f, %.2f, %.2f, %.2f, %d, %.2f, %.2f, "
+        "'%s', %.2f, %.2f, %.2f, %.2f, %.2f, %.2f, %d, "
         "%lu, %lu, %lu, %.2f, %.2f, %lu, %.2f, %llu, %llu, "
         "%lu, %.2f, %lu, %lu, %lu, %llu, %llu, %.2f"
         ");",
         timestamp, cpu, cpu_temp, mem, page_file,
-        disk_read, disk_write, disk_queue, net_in, net_out,
+        disk_read, disk_write, disk_queue,
         eventCounts.crash_count, eventCounts.error_count, eventCounts.warning_count,
         diskHealth.read_latency, diskHealth.write_latency, diskHealth.split_io_count,
         memFrag.fragmentation_percent, 

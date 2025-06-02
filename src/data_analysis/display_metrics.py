@@ -64,12 +64,7 @@ def display_basic_metrics(limit=10):
         memory_total_free,
         page_file_usage,
         disk_read_bytes,
-        disk_write_bytes,
-        network_bytes_in,
-        CASE 
-            WHEN network_bytes_out > 1099511627776 THEN NULL  -- Filter out values > 1TB
-            ELSE network_bytes_out 
-        END as network_bytes_out
+        disk_write_bytes
     FROM system_metrics 
     ORDER BY timestamp DESC 
     LIMIT ?
@@ -87,8 +82,6 @@ def display_basic_metrics(limit=10):
     df['page_file_usage'] = df['page_file_usage'].apply(format_bytes)
     df['disk_read_bytes'] = df['disk_read_bytes'].apply(format_bytes)
     df['disk_write_bytes'] = df['disk_write_bytes'].apply(format_bytes)
-    df['network_bytes_in'] = df['network_bytes_in'].apply(format_bytes)
-    df['network_bytes_out'] = df['network_bytes_out'].apply(format_bytes)
     
     # Drop the raw memory_total_free column
     df = df.drop(columns=['memory_total_free'])
@@ -102,9 +95,7 @@ def display_basic_metrics(limit=10):
         'Memory Free',
         'Page File',
         'Disk Read',
-        'Disk Write',
-        'Network In',
-        'Network Out'
+        'Disk Write'
     ]
     
     print("\nSystem Resource Monitor - Basic Metrics")

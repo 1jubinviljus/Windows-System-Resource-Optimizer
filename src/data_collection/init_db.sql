@@ -8,8 +8,6 @@ CREATE TABLE IF NOT EXISTS system_metrics (
     disk_read_bytes REAL,
     disk_write_bytes REAL,
     disk_queue_length INTEGER,
-    network_bytes_in REAL,
-    network_bytes_out REAL,
     crash_count INTEGER,
     error_count INTEGER,
     warning_count INTEGER,

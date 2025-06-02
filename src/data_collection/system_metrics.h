@@ -16,9 +16,6 @@ double get_page_file_usage(void);
 // Disk metrics
 void get_disk_metrics(double *read_bytes, double *write_bytes, int *queue_length);
 
-// Network metrics
-void get_network_metrics(double *bytes_in, double *bytes_out);
-
 // System events/stability
 void get_system_events(void);
 
