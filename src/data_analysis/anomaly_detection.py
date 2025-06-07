@@ -5,7 +5,7 @@ import preprocess
 
 # Load clean numerical data
 df = preprocess.load_and_clean()  # Ensure this returns only relevant numeric columns
-features = ['cpu_usage', 'memory_usage']  # Example features
+features = ['cpu_usage', 'memory_usage', 'memory_large_blocks', 'memory_virtual_total' ]  # Example features
 data = df[features]
 
 # Fit Isolation Forest
