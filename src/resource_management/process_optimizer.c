@@ -1,5 +1,7 @@
 #include "process_optimizer.h"
 #include <stdio.h>
+#include <windows.h>
+#include <psapi.h>
 
 /*
 Exercise 1: Implement get_process_info
@@ -16,13 +18,20 @@ Tips:
 - Remember to CloseHandle() when done
 */
 BOOL get_process_info(DWORD processId, ProcessInfo* info) {
-    if (info == NULL) return FALSE;
+    HANDLE hProcess;
     
-    // TODO: Implement this function
-    // 1. Open the process
-    // 2. Get process information
-    // 3. Clean up handles
+    // Open the process
+    hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, 
+                         FALSE, processId);
+    if (hProcess == NULL) {
+        // Handle error
+        return FALSE;
+    }
     
+    String processName = GetProcessImageFileNameW(hProcess);
+    info -> processId = processName;
+    
+    CloseHandle(hProcess);
     return TRUE;
 }
 
@@ -122,4 +131,123 @@ BOOL optimize_engineering_processes(void) {
     // 3. Optimize their priorities
     
     return TRUE;
+}
+
+/*
+ * Process Optimizer Implementation
+ * ------------------------------
+ * This module implements Windows system resource optimization with a focus on
+ * engineering applications. It uses the metrics collected by the data collection
+ * module to make intelligent decisions about process priorities and resource allocation.
+ */
+
+// Structure to track optimization attempts and timing
+typedef struct {
+    DWORD process_id;
+    int optimization_count;
+    ULONGLONG last_optimization_time;
+} OptimizationHistory;
+
+// Array to store optimization history
+static OptimizationHistory optimization_history[1024] = {0};
+static int history_count = 0;
+
+/*
+Function: optimize_process
+Pseudocode:
+1. Check if process has been optimized too many times
+2. Verify enough time has passed since last optimization
+3. Get current system and process metrics
+4. If system is under heavy load:
+   a. For engineering apps: increase priority if needed
+   b. For other apps: potentially decrease priority
+5. Adjust working set size based on usage patterns
+6. Update optimization history
+*/
+
+bool optimize_process(DWORD process_id, const ProcessInfo* process_info, const SystemMetrics* sys_metrics) {
+    // TODO: Implement optimization logic following pseudocode above
+    return TRUE;
+}
+
+/*
+Function: is_engineering_app
+Pseudocode:
+1. Compare process name against known engineering applications:
+   - CAD software (AutoCAD, SOLIDWORKS, etc.)
+   - Analysis tools (MATLAB, ANSYS, etc.)
+   - Design software (Adobe Suite, etc.)
+2. Return true if match found
+*/
+
+bool is_engineering_app(const wchar_t* process_name) {
+    // TODO: Implement engineering app detection
+    return FALSE;
+}
+
+/*
+Function: get_recommended_priority
+Pseudocode:
+1. Start with NORMAL_PRIORITY_CLASS
+2. For engineering apps:
+   a. If CPU usage > 50%: HIGH_PRIORITY_CLASS
+   b. If CPU usage > 20%: ABOVE_NORMAL_PRIORITY_CLASS
+3. For other apps under system pressure:
+   a. If CPU usage > 70%: consider BELOW_NORMAL_PRIORITY_CLASS
+   b. If memory usage very high: consider BELOW_NORMAL_PRIORITY_CLASS
+4. Never set below IDLE_PRIORITY_CLASS
+*/
+
+DWORD get_recommended_priority(const ProcessInfo* process_info, bool is_engineering) {
+    // TODO: Implement priority calculation logic
+    return NORMAL_PRIORITY_CLASS;
+}
+
+/*
+Function: adjust_process_memory
+Pseudocode:
+1. Get current working set size
+2. Calculate optimal working set limits based on:
+   a. Current usage patterns
+   b. Available system memory
+   c. Application type
+3. Set new working set limits
+4. If memory pressure high:
+   a. Consider trimming working set
+   b. Adjust page priority
+*/
+
+bool adjust_process_memory(HANDLE process_handle, SIZE_T working_set_size) {
+    // TODO: Implement memory adjustment logic
+    return TRUE;
+}
+
+/*
+Function: optimize_system_performance
+Pseudocode:
+1. Check if optimization is needed:
+   a. Get current system metrics
+   b. Check CPU and memory thresholds
+2. Query latest process metrics from database
+3. For each process:
+   a. Check if it needs optimization
+   b. Apply optimizations if needed
+   c. Update optimization history
+4. Log optimization actions
+*/
+
+void optimize_system_performance(sqlite3* db) {
+    // TODO: Implement main optimization loop
+}
+
+/*
+Function: reset_optimization_history
+Pseudocode:
+1. Clear all optimization history entries
+2. Reset history counter
+3. Log reset action
+*/
+
+void reset_optimization_history(void) {
+    // TODO: Implement history reset
 } 
