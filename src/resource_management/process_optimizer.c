@@ -17,14 +17,14 @@ Tips:
 - Check for NULL handles
 - Remember to CloseHandle() when done
 */
+// Gets basic information about a process including its name and ID
 BOOL get_process_info(DWORD processId, ProcessInfo* info) {
     HANDLE hProcess;
     
-    // Open the process
+    // Open the process with necessary permissions
     hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, 
                          FALSE, processId);
     if (hProcess == NULL) {
-        // Handle error
         return FALSE;
     }
     
@@ -47,14 +47,35 @@ Tips:
 - Calculate difference between two measurements
 - Remember system has multiple CPU cores
 */
+// Calculates the total CPU time used by a process in seconds
 BOOL calculate_process_cpu_usage(DWORD processId, double* cpuUsage) {
     if (cpuUsage == NULL) return FALSE;
     
-    // TODO: Implement this function
-    // 1. Get process handle
-    // 2. Get process times
-    // 3. Calculate usage
+    // Open process with necessary permissions
+    HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, processId);
+    if (hProcess == NULL) return FALSE;
+
+    // Get process timing information
+    FILETIME creationTime, exitTime, kernelTime, userTime;
+    if (!GetProcessTimes(hProcess, &creationTime, &exitTime, &kernelTime, &userTime)) {
+        CloseHandle(hProcess);
+        return FALSE;
+    }
+
+    // Convert FILETIME structures to ULARGE_INTEGER for easier calculation
+    ULARGE_INTEGER kernelTimeUL, userTimeUL;
+    kernelTimeUL.LowPart = kernelTime.dwLowDateTime;
+    kernelTimeUL.HighPart = kernelTime.dwHighDateTime;
+    userTimeUL.LowPart = userTime.dwLowDateTime;
+    userTimeUL.HighPart = userTime.dwHighDateTime;
+
+    // Calculate total CPU time (kernel + user time)
+    ULONGLONG totalTime = kernelTimeUL.QuadPart + userTimeUL.QuadPart;
     
+    // Convert 100-nanosecond intervals to seconds
+    *cpuUsage = (double)totalTime / 10000000.0;
+
+    CloseHandle(hProcess);
     return TRUE;
 }
 
