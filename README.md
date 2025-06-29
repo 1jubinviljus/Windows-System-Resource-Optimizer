@@ -1,91 +1,40 @@
 # Windows System Resource Optimizer
 
-A powerful system monitoring and optimization tool that tracks CPU, memory, and disk usage patterns in Windows systems. This tool helps identify resource-intensive processes and system performance bottlenecks through data collection and analysis.
+This tool helps you monitor and optimize your Windows PC. It tracks system and process resource usage (like CPU and memory), and tries to boost performance for engineering software.
 
-## Features
+## How it works
 
-- **Real-time System Monitoring**
-  - CPU usage tracking
-  - Memory usage monitoring
-  - Disk usage analysis
-  - Process-level resource consumption
+- **C programs** collect system and process data, and try to optimize important apps.
+- **Python scripts** analyze the data and help you understand what's slowing things down.
 
-- **Advanced Analytics**
-  - Resource spike detection
-  - Idle/Active state classification
-  - Process-system correlation analysis
-  - Long-duration spike identification
+## How to use
 
-- **Data Visualization**
-  - System resource usage trends
-  - Top CPU-consuming processes
-  - Resource spike highlighting
-  - Smoothed usage graphs
+1. **Build the C code** (if not already built):
+   ```
+   make all
+   ```
+2. **Run the main controller:**
+   ```
+   python src/main_controller.py
+   ```
+   This will start collecting data, optimizing, and running analysis.
 
-## Prerequisites
+3. **(Optional) Run tests:**
+   ```
+   python test_system.py
+   ```
+
+## Requirements
 
 - Windows 10 or later
 - Python 3.7+
-- C compiler (for the data collection component)
-- SQLite3
+- A C compiler (like gcc)
+- Python packages: see `requirements.txt`
 
-## Installation
+## Project structure
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/yourusername/Windows-System-Resource-Optimizer.git
-   cd Windows-System-Resource-Optimizer
-   ```
-
-2. Install Python dependencies:
-   ```bash
-   pip install pandas matplotlib sqlite3
-   ```
-
-3. Compile the C data collector:
-   ```bash
-   mkdir build
-   gcc src/main.c -o build/collector.exe -lpsapi
-   ```
-
-## Usage
-
-1. Start the data collector:
-   ```bash
-   ./build/collector.exe
-   ```
-   This will begin collecting system and process statistics in the SQLite database.
-
-2. Run analysis tools:
-   ```bash
-   python src/analytics.py    # Basic system state analysis
-   python src/visualize.py    # Generate usage graphs
-   python src/process_spike_correlation.py  # Analyze process correlations
-   ```
-
-## Configuration
-
-Key parameters can be adjusted in the source files:
-
-- `src/analytics.py`:
-  - `CPU_THRESHOLD`: Idle CPU usage threshold (default: 12%)
-  - `MEM_THRESHOLD`: Idle memory usage threshold (default: 10%)
-  - `DISK_THRESHOLD`: Idle disk usage threshold (default: 10%)
-
-- `src/detection.py`:
-  - `ROLLING_WINDOW`: Data smoothing window size
-  - `THRESHOLD`: Spike detection sensitivity
-
-## Project Structure
-
-- `src/`
-  - `main.c`: Core data collection system (C)
-  - `analytics.py`: System state analysis
-  - `detection.py`: Resource spike detection
-  - `visualize.py`: Data visualization
-  - `process_spike_correlation.py`: Process analysis
-  - `insert_test_data.py`: Test data generation
-
-- `build/`: Compiled binaries and database
-- `logs/`: Application logs
-- `include/`: C header files
+- `src/data_collection/` – C code for collecting system/process data
+- `src/resource_management/` – C code for process optimization
+- `src/data_analysis/` – Python scripts for analysis and metrics
+- `src/main_controller.py` – Orchestrates everything
+- `test_system.py` – Tests the system
