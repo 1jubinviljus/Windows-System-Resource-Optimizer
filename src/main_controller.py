@@ -12,6 +12,7 @@ import signal
 import sys
 import os
 from pathlib import Path
+from datetime import datetime
 
 # Add the data_analysis directory to the path
 sys.path.append(str(Path(__file__).parent / 'data_analysis'))
@@ -53,6 +54,9 @@ class SystemOptimizer:
         """Run periodic optimization checks"""
         while self.running:
             try:
+                # Log when check occurs
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] Running optimization check...")
+                
                 # Connect to database
                 conn = sqlite3.connect(self.db_path)
                 cursor = conn.cursor()
@@ -62,10 +66,10 @@ class SystemOptimizer:
                     SELECT DISTINCT process_name, process_id 
                     FROM process_metrics 
                     WHERE timestamp >= datetime('now', '-5 minutes')
-                    AND (process_name LIKE '%solidworks%' 
-                         OR process_name LIKE '%autocad%' 
-                         OR process_name LIKE '%matlab%'
-                         OR process_name LIKE '%ansys%')
+                    AND (LOWER(process_name) LIKE '%solidworks%' 
+                         OR LOWER(process_name) LIKE '%autocad%' 
+                         OR LOWER(process_name) LIKE '%matlab%'
+                         OR LOWER(process_name) LIKE '%ansys%')
                 """)
                 
                 engineering_processes = cursor.fetchall()
@@ -76,6 +80,8 @@ class SystemOptimizer:
                     # For now, just log the detection
                     for process_name, process_id in engineering_processes:
                         print(f"Engineering process detected: {process_name} (PID: {process_id})")
+                else:
+                    print("No engineering processes found")
                 
                 conn.close()
                 
@@ -88,6 +94,9 @@ class SystemOptimizer:
         """Run periodic data analysis"""
         while self.running:
             try:
+                # Log when check occurs
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] Running analysis check...")
+                
                 # Run anomaly detection
                 anomalies = detect_anomalies(self.db_path)
                 if anomalies:
