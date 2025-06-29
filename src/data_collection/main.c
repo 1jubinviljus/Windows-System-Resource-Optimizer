@@ -6,6 +6,7 @@
 #include <sqlite3.h>
 #include "system_metrics.h"
 #include "process_metrics.h"
+#include "../resource_management/process_optimizer.h"
 
 // Global flag for graceful shutdown
 static volatile bool running = true;
@@ -58,9 +59,11 @@ static bool initialize_database(sqlite3 *db) {
 int main(int argc, char *argv[]) {
     // Default collection interval (in milliseconds)
     const DWORD collection_interval = 5000;  // 5 seconds
+    const DWORD optimization_interval = 30000; // 30 seconds
     sqlite3 *db = NULL;
     time_t now;
     char timestamp[64];
+    DWORD last_optimization = 0;
     
     // Set up signal handling for graceful termination
     signal(SIGINT, signal_handler);
@@ -78,8 +81,9 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     
-    printf("Starting system metrics collection (Press Ctrl+C to stop)...\n");
+    printf("Starting system metrics collection and optimization (Press Ctrl+C to stop)...\n");
     printf("Collection interval: %lu ms\n", collection_interval);
+    printf("Optimization interval: %lu ms\n", optimization_interval);
     
     // Main collection loop
     while (running) {
@@ -90,6 +94,18 @@ int main(int argc, char *argv[]) {
         // Collect and store metrics
         collect_system_metrics(db, timestamp);
         collect_process_metrics(db, timestamp);
+        
+        // Run optimization periodically
+        DWORD current_time = GetTickCount();
+        if (current_time - last_optimization >= optimization_interval) {
+            printf("Running process optimization...\n");
+            if (optimize_engineering_processes()) {
+                printf("Engineering processes optimized successfully\n");
+            } else {
+                printf("No engineering processes found or optimization failed\n");
+            }
+            last_optimization = current_time;
+        }
         
         // Print a status message
         printf("Metrics collected at %s\n", timestamp);

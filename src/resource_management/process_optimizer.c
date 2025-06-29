@@ -1,6 +1,8 @@
 #include "process_optimizer.h"
 #include <windows.h>
 #include <tlhelp32.h>
+#include <psapi.h>
+#include <wchar.h>
 
 // Gets basic information about a process including its name and ID
 BOOL get_process_info(DWORD processId, ProcessInfo* info) {
@@ -12,7 +14,7 @@ BOOL get_process_info(DWORD processId, ProcessInfo* info) {
         CloseHandle(hProcess);
         return FALSE;
     }
-    info->process_id = processId;
+    info->processId = processId;
 
     // Optionally: fill out more fields (memory, CPU, etc.)
 

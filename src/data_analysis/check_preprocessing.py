@@ -1,7 +1,7 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from preprocess import load_and_clean
+from data_analysis.preprocess import load_and_clean
 import numpy as np
 
 def analyze_preprocessed_data():
